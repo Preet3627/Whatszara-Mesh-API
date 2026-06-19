@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Whatszara</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <aside class="sidebar">
+        <div class="sidebar-header">
+          <h1>Whatszara</h1>
+          <span class="status-badge" id="status-badge">disconnected</span>
+        </div>
+        <nav class="sidebar-nav">
+          <button class="nav-item active" data-view="dashboard">Dashboard</button>
+          <button class="nav-item" data-view="chat">Chat</button>
+          <button class="nav-item" data-view="providers">Providers</button>
+          <button class="nav-item" data-view="permissions">Permissions</button>
+          <button class="nav-item" data-view="actions">Action Log</button>
+          <button class="nav-item" data-view="settings">Settings</button>
+        </nav>
+        <div class="sidebar-footer">
+          <span class="version">v0.1.0</span>
+        </div>
+      </aside>
+
+      <main class="main-content" id="main-content">
+        <div class="view" id="view-dashboard">
+          <h2>Dashboard</h2>
+          <div class="stats-grid">
+            <div class="stat-card">
+              <span class="stat-label">WhatsApp</span>
+              <span class="stat-value" id="wa-status">Checking...</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-label">LLM Provider</span>
+              <span class="stat-value" id="llm-status">Checking...</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-label">Actions Today</span>
+              <span class="stat-value" id="actions-count">0</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-label">Active Risk Level</span>
+              <span class="stat-value" id="risk-level">Low</span>
+            </div>
+          </div>
+          <div class="section">
+            <h3>Welcome to Whatszara</h3>
+            <p>Your desktop assistant controlled via WhatsApp + LLM.</p>
+            <ol class="setup-list">
+              <li>Start the WhatsApp bridge: <code>cd whatsapp-bridge && go run main.go</code></li>
+              <li>Start the orchestrator: <code>cd orchestrator && python main.py</code></li>
+              <li>Configure an LLM provider in Settings</li>
+              <li>Send a message to your WhatsApp number to control your desktop</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="view hidden" id="view-providers">
+          <h2>LLM Providers</h2>
+          <div class="toggle-group">
+            <label class="toggle">
+              <input type="checkbox" id="provider-ollama" checked />
+              <span class="toggle-label">Ollama (Local)</span>
+            </label>
+            <label class="toggle">
+              <input type="checkbox" id="provider-claude" />
+              <span class="toggle-label">Claude (Anthropic)</span>
+            </label>
+            <label class="toggle">
+              <input type="checkbox" id="provider-groq" />
+              <span class="toggle-label">Groq</span>
+            </label>
+            <label class="toggle">
+              <input type="checkbox" id="provider-grok" />
+              <span class="toggle-label">Grok (xAI)</span>
+            </label>
+            <label class="toggle">
+              <input type="checkbox" id="provider-gemini" />
+              <span class="toggle-label">Gemini (Google)</span>
+            </label>
+          </div>
+          <div class="section">
+            <h3>Active Provider</h3>
+            <select id="active-provider-select">
+              <option value="ollama">Ollama</option>
+              <option value="claude">Claude</option>
+              <option value="groq">Groq</option>
+              <option value="grok">Grok</option>
+              <option value="gemini">Gemini</option>
+            </select>
+            <h3>Available Models</h3>
+            <pre id="models-list" class="code-block">Fetching models...</pre>
+          </div>
+        </div>
+
+        <div class="view hidden" id="view-permissions">
+          <h2>Permission Settings</h2>
+          <div class="section">
+            <h3>Risk Profiles</h3>
+            <div class="risk-cards">
+              <div class="risk-card risk-low">
+                <h4>🟢 Low Risk</h4>
+                <p>Read volume, list files, get time</p>
+                <small>Auto-approved, logged only</small>
+              </div>
+              <div class="risk-card risk-medium">
+                <h4>🟡 Medium Risk</h4>
+                <p>Open apps, play music, send files</p>
+                <small>Requires image-to-text CAPTCHA</small>
+              </div>
+              <div class="risk-card risk-high">
+                <h4>🔴 High Risk</h4>
+                <p>Shell commands, delete, install</p>
+                <small>reCAPTCHA + CAPTCHA + confirm</small>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="view hidden" id="view-actions">
+          <h2>Action Log</h2>
+          <div class="section">
+            <button class="btn" id="refresh-log">Refresh</button>
+            <table class="action-table" id="action-table">
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>Action</th>
+                  <th>Status</th>
+                  <th>Reversible</th>
+                </tr>
+              </thead>
+              <tbody id="action-log-body">
+                <tr><td colspan="4">No actions yet</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="view hidden" id="view-settings">
+          <h2>Settings</h2>
+          <div class="section">
+            <h3>WhatsApp Bridge</h3>
+            <label>Bridge URL <input type="text" id="bridge-url" value="http://localhost:8080" /></label>
+            <label>API Key <input type="password" id="api-key" placeholder="Optional" /></label>
+          </div>
+          <div class="section">
+            <h3>Orchestrator</h3>
+            <label>Ollama Endpoint <input type="text" id="ollama-endpoint" value="http://localhost:11434" /></label>
+          </div>
+          <div class="section">
+            <button class="btn btn-primary" id="save-settings">Save Settings</button>
+          </div>
+        </div>
+      </main>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

@@ -1,0 +1,41 @@
+# Original whatsapp-mcp
+*.db
+claude_desktop_config.json
+whatsapp.log
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+
+# Rust / Tauri
+desktop-app/src-tauri/target/
+*.rs.bk
+
+# Node
+node_modules/
+desktop-app/node_modules/
+desktop-app/dist/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Secrets
+.env
+.env.local
+*.key
+*.pem
+
+# OS
+.DS_Store
+Thumbs.db
