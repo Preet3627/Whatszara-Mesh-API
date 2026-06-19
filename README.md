@@ -51,8 +51,8 @@ WhatsApp Message ──▶ Orchestrator ──▶ LLM (Ollama/Claude/Groq/etc.)
 - [x] App launcher, volume control, media playback (macOS)
 - [x] Desktop image scanner
 - [x] Reversible undo journal for all actions
-- [x] Permanent WhatsApp auth via macOS/iCloud Keychain (auto-save + restore)
-- [x] Persistent policy config in Keychain (allowlist, modes, permissions)
+- [x] Permanent WhatsApp auth via platform-native credential store (auto-save + restore)
+- [x] Persistent policy config in credential store (allowlist, modes, permissions)
 - [x] Configurable Ollama endpoint from GUI
 - [x] API key management for cloud providers from GUI
 - [x] API_KEY env var auth on Go bridge endpoints
@@ -93,7 +93,7 @@ WhatsApp Message ──▶ Orchestrator ──▶ LLM (Ollama/Claude/Groq/etc.)
 │                                   │  └──────────────────────────┘   │    │
 │                                   │                                  │    │
 │  ┌────────────────────────┐      │  ┌──────────────────────────┐   │    │
-│  │  macOS Keychain         │      │  │  Action Engine          │   │    │
+ │  │  Credential Store       │      │  │  Action Engine          │   │    │
 │  │  - WA session (auto)   │      │  │  - Shell (disabled)     │   │    │
 │  │  - Config (allowlist   │      │  │  - macOS: osascript     │   │    │
 │  │    modes, perms)       │      │  │  - Volume / Media       │   │    │
@@ -122,51 +122,140 @@ WhatsApp Message ──▶ Orchestrator ──▶ LLM (Ollama/Claude/Groq/etc.)
 
 ## Quick Start
 
-### Prerequisites
-- **Go** (for WhatsApp bridge)
-- **Node.js 20+** + **Rust** (for Tauri desktop app)
-- **FFmpeg** (optional — for audio messages)
+### Requirements
+
+- **Go** for the WhatsApp bridge
+- **Node.js 20+** and **Rust** for the Tauri desktop app
+- **Ollama** or an API key for Claude, Groq, Grok, or Gemini
+- **FFmpeg** optional, only needed for audio-message workflows
 
 **Python is NOT required.**
 
-### Setup (30 seconds)
+### Install
 
 ```bash
 chmod +x setup.sh && ./setup.sh
-# Or: make setup
 ```
 
-### Run
+Or run the project setup target directly:
 
 ```bash
-# Terminal 1: WhatsApp bridge
-make bridge
-# Scan QR code with WhatsApp mobile app → Linked Devices → Link a Device
+make setup
+```
 
-# Terminal 2: Desktop app
+### Launch
+
+```bash
 make desktop
 ```
 
-The app auto-starts the bridge. On first use:
-1. **Bridge starts** → QR code shown in terminal → scan with WhatsApp
-2. **Session auto-saved** to macOS Keychain — no re-scan on restart
-3. **Configure a provider** → Ollama works out of the box, or set API keys
-4. **Allowlist your number** → your own JID is `self` (pre-allowed)
-5. **Send a message** → e.g. "What's my volume?" or "Open Firefox"
+The desktop app opens with a modern setup wizard, live bridge status, light/dark/vibrant themes, keyboard shortcuts, and a built-in Guide tab for help.
 
-### Configuring LLM Providers
+## First-Run Setup
 
-Set environment variables or use the Settings GUI in the app:
+### 1. Connect WhatsApp
 
-```bash
-export OLLAMA_ENDPOINT=http://localhost:11434     # Ollama (default)
-export ANTHROPIC_API_KEY=sk-ant-...                # Claude
-export GROQ_API_KEY=gsk-...                         # Groq
-export XAI_API_KEY=...                              # Grok (xAI)
-export GEMINI_API_KEY=...                           # Gemini
+The app starts the bridge automatically from `whatsapp-bridge/`. When the QR code appears, open WhatsApp on your phone:
+
+```text
+Linked Devices -> Link a Device -> Scan QR
 ```
 
-The Ollama endpoint and all API keys can also be set from the Settings tab → "Apply Endpoint" and "Apply API Keys" buttons.
+The dashboard shows bridge states in real time:
+
+| Status | Meaning |
+|--------|---------|
+| `stopped` | The bridge is not running |
+| `starting...` | The bridge process is booting |
+| `scan QR` | WhatsApp needs device linking |
+| `connected` | The bridge API is reachable and authenticated |
+| `error` | The bridge failed; open the dashboard error detail |
+
+### 2. Choose an LLM Provider
+
+Open **Providers**, choose the active provider, and refresh model lists. Ollama works locally; cloud providers require API keys.
+
+```bash
+export OLLAMA_ENDPOINT=http://localhost:11434
+export ANTHROPIC_API_KEY=sk-ant-...
+export GROQ_API_KEY=gsk-...
+export XAI_API_KEY=xai-...
+export GEMINI_API_KEY=AIza...
+```
+
+You can also paste provider keys into **Settings** and save local settings from the app.
+
+### 3. Allowlist Contacts
+
+Open **Permissions**, review contacts, and allowlist only trusted WhatsApp JIDs. Contact modes control behavior:
+
+| Mode | Behavior |
+|------|----------|
+| **Assistant** | Can request desktop actions through the LLM |
+| **Chat** | Text-only responses, no action execution |
+| **Summarize** | Produces short summaries |
+| **Blocked** | Rejected by policy |
+
+### 4. Send a Message
+
+Send a WhatsApp message to the connected account. Whatszara reads the message, asks the active model what to do, checks policy, and logs the result.
+
+## Desktop UI Guide
+
+### Themes
+
+Use the sidebar theme switcher:
+
+| Theme | Best for |
+|-------|----------|
+| **Dark** | Default focused workspace |
+| **Light** | Bright rooms and screenshots |
+| **Vibrant** | High-contrast colorful dashboard |
+
+Theme choice is saved in local storage and restored on launch.
+
+### Keyboard Shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| `Cmd/Ctrl + 1` | Dashboard |
+| `Cmd/Ctrl + 2` | Chat |
+| `Cmd/Ctrl + 3` | Providers |
+| `Cmd/Ctrl + 4` | Permissions |
+| `Cmd/Ctrl + 5` | Action Log |
+| `Cmd/Ctrl + 6` | Settings |
+| `Cmd/Ctrl + 7` | Guide |
+| `Cmd/Ctrl + K` | Focus search or reply |
+| `Cmd/Ctrl + J` | Open Chat |
+| `Cmd/Ctrl + G` or `?` | Open Guide |
+| `Esc` | Clear and blur the focused input |
+
+## Troubleshooting
+
+| Problem | Fix |
+|---------|-----|
+| Bridge shows `stopped` | Confirm Go is installed with `go version`, then restart the app |
+| Bridge shows `error` | Run `cd whatsapp-bridge && go run main.go` to see raw bridge logs |
+| `go: not found` | Install Go from [go.dev](https://go.dev/dl/) and confirm it is in `PATH` |
+| QR code does not appear | Remove `whatsapp-bridge/store/`, restart, and link again |
+| QR scan fails repeatedly | Confirm your phone has internet and WhatsApp Linked Devices is available |
+| Port `8080` is busy | Stop the other process or change the bridge port in `whatsapp-bridge/main.go` |
+| Ollama models are missing | Run `ollama serve`, then `ollama pull llama3.1`, then refresh Providers |
+| Cloud provider fails | Check the matching API key in Settings or shell environment |
+| Messages do not execute | Check allowlist, contact mode, active provider, and tool permission toggles |
+| Actions stay pending | Open Chat, select the contact, then approve or reject pending actions |
+
+### Manual Bridge Mode
+
+Use this when debugging bridge logs separately:
+
+```bash
+# Terminal 1
+make bridge
+
+# Terminal 2
+make desktop
+```
 
 ## Policy & Permission System
 
@@ -202,8 +291,8 @@ Every allowed contact has a mode:
 
 | What | Where | How |
 |------|-------|-----|
-| WhatsApp session | macOS Keychain (`whatszara-wa-session`) | Auto-saved on first connect, auto-restored on launch |
-| Policy config | macOS Keychain (`whatszara-config`) | Auto-saved on every change, manual load from Settings |
+| WhatsApp session | Credential Store (`whatszara-wa-session`) | Auto-saved on first connect, auto-restored on launch |
+| Policy config | Credential Store (`whatszara-config`) | Auto-saved on every change, manual load from Settings |
 | App settings | Browser localStorage | Endpoint URLs, API keys |
 
 ## Chat View & AI Replies
@@ -215,11 +304,22 @@ The built-in chat view features:
 - **Reply area**: Type a message, AI processes and sends response via WhatsApp. Only visible for allowlisted contacts
 - **Pending actions panel**: Shows AI-triggered tool calls with Approve/Reject buttons. High-risk actions require approval before execution
 
-## Keychain Integration
+## Credential Storage
 
-- **WhatsApp auth**: Session DB bytes are base64-encoded and stored via `security add-generic-password`. Restored on app startup — no QR re-scan needed
-- **Policy config**: Allowlist, contact modes, and tool permissions are serialized to JSON and stored separately. Auto-saved on every change
-- **Logout**: Kills the bridge, deletes both Keychain entries, removes session file. Click "Logout & Disconnect" on the Dashboard
+Whatszara uses the **[keyring](https://github.com/hwchen/keyring-rs)** crate for cross-platform credential storage — no platform-specific code needed.
+
+| Platform | Backend |
+|----------|---------|
+| macOS | iCloud Keychain (via Security framework) |
+| Windows | Credential Manager (via wincred) |
+| Linux | Secret Service / keyutils |
+
+Two entries are stored with service name and username `whatszara`:
+
+- **`whatszara-wa-session`** — WhatsApp session DB (base64-encoded). Auto-saved on first connect, restored on startup — no QR re-scan needed
+- **`whatszara-config`** — Policy config (allowlist, contact modes, tool permissions). Auto-saved on every change, auto-restored on startup
+
+**Logout**: Kills the bridge, deletes both credential entries, removes session file. Click "Logout & Disconnect" on the Dashboard.
 
 ## License
 
