@@ -52,8 +52,8 @@
             <p>Your desktop assistant controlled via WhatsApp + LLM.</p>
             <ol class="setup-list">
               <li>Start the WhatsApp bridge: <code>cd whatsapp-bridge && go run main.go</code></li>
-              <li>Start the orchestrator: <code>cd orchestrator && python main.py</code></li>
-              <li>Configure an LLM provider in Settings</li>
+              <li>Configure an LLM provider in Providers tab</li>
+              <li>Add your WhatsApp JID to the allowlist in Permissions tab</li>
               <li>Send a message to your WhatsApp number to control your desktop</li>
             </ol>
           </div>
@@ -103,21 +103,69 @@
             <h3>Risk Profiles</h3>
             <div class="risk-cards">
               <div class="risk-card risk-low">
-                <h4>🟢 Low Risk</h4>
+                <h4>Low Risk</h4>
                 <p>Read volume, list files, get time</p>
                 <small>Auto-approved, logged only</small>
               </div>
               <div class="risk-card risk-medium">
-                <h4>🟡 Medium Risk</h4>
+                <h4>Medium Risk</h4>
                 <p>Open apps, play music, send files</p>
                 <small>Requires image-to-text CAPTCHA</small>
               </div>
               <div class="risk-card risk-high">
-                <h4>🔴 High Risk</h4>
+                <h4>High Risk</h4>
                 <p>Shell commands, delete, install</p>
                 <small>reCAPTCHA + CAPTCHA + confirm</small>
               </div>
             </div>
+          </div>
+          <div class="section">
+            <h3>Tool Permissions</h3>
+            <div class="toggle-group">
+              <label class="toggle">
+                <input type="checkbox" id="perm-shell" checked data-perm="shell" />
+                <span class="toggle-label">Shell Commands</span>
+              </label>
+              <label class="toggle">
+                <input type="checkbox" id="perm-file-access" checked data-perm="file_access" />
+                <span class="toggle-label">File Access</span>
+              </label>
+              <label class="toggle">
+                <input type="checkbox" id="perm-media-control" checked data-perm="media_control" />
+                <span class="toggle-label">Media Control</span>
+              </label>
+              <label class="toggle">
+                <input type="checkbox" id="perm-app-launching" checked data-perm="app_launching" />
+                <span class="toggle-label">App Launching</span>
+              </label>
+              <label class="toggle">
+                <input type="checkbox" id="perm-whatsapp" checked data-perm="whatsapp" />
+                <span class="toggle-label">WhatsApp</span>
+              </label>
+            </div>
+          </div>
+          <div class="section">
+            <h3>Allowlist</h3>
+            <div class="row">
+              <input type="text" id="allowlist-jid" placeholder="1234567890@s.whatsapp.net" />
+              <button class="btn" id="allowlist-add">Add</button>
+              <button class="btn" id="allowlist-remove">Remove</button>
+            </div>
+            <pre id="allowlist-display" class="code-block">Loading...</pre>
+          </div>
+          <div class="section">
+            <h3>Contact Modes</h3>
+            <div class="row">
+              <input type="text" id="contact-jid" placeholder="1234567890@s.whatsapp.net" />
+              <select id="contact-mode-select">
+                <option value="assistant">Assistant</option>
+                <option value="chat">Chat Only</option>
+                <option value="summarize" selected>Summarize</option>
+                <option value="blocked">Blocked</option>
+              </select>
+              <button class="btn" id="contact-mode-set">Set Mode</button>
+            </div>
+            <pre id="contact-modes-display" class="code-block">Loading...</pre>
           </div>
         </div>
 

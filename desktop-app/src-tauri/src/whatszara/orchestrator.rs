@@ -1,5 +1,5 @@
 use super::llm::{self, LLMMessage, ProviderRegistry};
-use super::permissions::{PermissionEngine, RiskLevel};
+use super::policy::{ContactMode, PolicyEngine};
 use super::actions::{ShellExecutor, AppLauncher, MediaController, DesktopScanner, ActionResult};
 use super::undo::{ActionJournal, ReverseAction};
 use serde_json;
@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 pub struct WhatszaraOrchestrator {
     pub providers: ProviderRegistry,
-    pub permissions: PermissionEngine,
+    pub policy: PolicyEngine,
     pub shell: ShellExecutor,
     pub actions_journal: ActionJournal,
 }
@@ -16,7 +16,7 @@ impl WhatszaraOrchestrator {
     pub fn new() -> Self {
         Self {
             providers: ProviderRegistry::new(),
-            permissions: PermissionEngine::new(),
+            policy: PolicyEngine::new(),
             shell: ShellExecutor::default(),
             actions_journal: ActionJournal::new(1000),
         }
@@ -49,45 +49,98 @@ impl WhatszaraOrchestrator {
         }
     }
 
-    pub async fn process_message(&self, message: &str) -> Result<serde_json::Value, String> {
-        let system = "You are Whatszara, a desktop assistant controlled via WhatsApp. \
-            You can execute shell commands, open applications, control volume and media playback, \
-            and list files on the desktop. Available tools: execute_shell, open_app, get_volume, \
-            set_volume, play_music, pause_music, next_track, prev_track, list_images, get_desktop_paths. \
-            Respond concisely and report results clearly.";
+    pub async fn process_message(&self, message: &str, contact_jid: &str) -> Result<serde_json::Value, String> {
+        let mode = self.policy.get_contact_mode(contact_jid);
 
-        let history = vec![
-            LLMMessage { role: "user".into(), content: message.into() },
-        ];
+        match mode {
+            ContactMode::Blocked => {
+                return Ok(serde_json::json!({
+                    "success": false,
+                    "error": "This contact is blocked",
+                    "contact_mode": "blocked",
+                }));
+            }
+            ContactMode::Summarize => {
+                let history = vec![
+                    LLMMessage { role: "user".into(), content: message.into() },
+                ];
+                let system = "Summarize the following WhatsApp message concisely in 2-3 sentences. \
+                    Do not execute any actions. Only return a summary of the message.";
 
-        match self.providers.chat(&history, Some(system)).await {
-            Ok(resp) => Ok(serde_json::json!({
-                "success": true,
-                "content": resp.content,
-                "model": resp.model,
-                "provider": resp.provider,
-            })),
-            Err(e) => Ok(serde_json::json!({ "success": false, "error": e })),
+                return match self.providers.chat(&history, Some(system)).await {
+                    Ok(resp) => Ok(serde_json::json!({
+                        "success": true,
+                        "content": resp.content,
+                        "model": resp.model,
+                        "provider": resp.provider,
+                        "contact_mode": "summarize",
+                    })),
+                    Err(e) => Ok(serde_json::json!({
+                        "success": false,
+                        "error": e,
+                        "contact_mode": "summarize",
+                    })),
+                };
+            }
+            ContactMode::Chat => {
+                let history = vec![
+                    LLMMessage { role: "user".into(), content: message.into() },
+                ];
+                let system = "You are Whatszara, a WhatsApp-connected AI assistant. \
+                    You can only chat and answer questions. You cannot execute any desktop actions. \
+                    Respond helpfully and concisely.";
+
+                return match self.providers.chat(&history, Some(system)).await {
+                    Ok(resp) => Ok(serde_json::json!({
+                        "success": true,
+                        "content": resp.content,
+                        "model": resp.model,
+                        "provider": resp.provider,
+                        "contact_mode": "chat",
+                    })),
+                    Err(e) => Ok(serde_json::json!({
+                        "success": false,
+                        "error": e,
+                        "contact_mode": "chat",
+                    })),
+                };
+            }
+            ContactMode::Assistant => {
+                let system = "You are Whatszara, a desktop assistant controlled via WhatsApp. \
+                    You can execute shell commands, open applications, control volume and media playback, \
+                    and list files on the desktop. Available tools: execute_shell, open_app, get_volume, \
+                    set_volume, play_music, pause_music, next_track, prev_track, list_images, get_desktop_paths. \
+                    Respond concisely and report results clearly.";
+
+                let history = vec![
+                    LLMMessage { role: "user".into(), content: message.into() },
+                ];
+
+                return match self.providers.chat(&history, Some(system)).await {
+                    Ok(resp) => Ok(serde_json::json!({
+                        "success": true,
+                        "content": resp.content,
+                        "model": resp.model,
+                        "provider": resp.provider,
+                        "contact_mode": "assistant",
+                    })),
+                    Err(e) => Ok(serde_json::json!({ "success": false, "error": e })),
+                };
+            }
         }
     }
 
     pub async fn handle_action(&mut self, action: &str, params: HashMap<String, String>, contact: &str) -> serde_json::Value {
-        let mut req = self.permissions.evaluate(action, params.clone(), contact);
-        let risk = req.risk_level;
+        let reason = format!("Action requested by {}", contact);
+        let (_proposal, decision) = self.policy.propose(action, params.clone(), contact, &reason);
 
-        let approved = self.permissions.approve(&mut req,
-            risk == RiskLevel::Low,
-            if risk == RiskLevel::Low { Some(1.0) } else { None },
-            risk == RiskLevel::Low,
-        );
-
-        if !approved {
-            let required = req.requires_action();
+        if !decision.allowed {
             return serde_json::json!({
                 "success": false,
-                "error": "Action requires verification",
-                "requires": required,
-                "risk_level": format!("{:?}", risk).to_lowercase(),
+                "error": decision.reason,
+                "requires_verification": decision.requires_verification,
+                "risk_level": decision.risk_level,
+                "action": action,
             });
         }
 
@@ -96,7 +149,7 @@ impl WhatszaraOrchestrator {
         let reverse = self.build_reverse(action, &params, &result);
         self.actions_journal.record(
             action, params, serde_json::to_value(&result).unwrap_or_default(),
-            reverse, &format!("{:?}", risk).to_lowercase(), contact,
+            reverse, &decision.risk_level, contact,
         );
 
         serde_json::to_value(&result).unwrap_or_default()
@@ -119,7 +172,7 @@ impl WhatszaraOrchestrator {
             }
             "play_music" => {
                 let query = params.get("query").map(|s| s.as_str());
-                MediaController::play_music(query).await
+                MediaController::play(query).await
             }
             "pause_music" => MediaController::pause().await,
             "next_track" => MediaController::next_track().await,
@@ -129,7 +182,7 @@ impl WhatszaraOrchestrator {
                 DesktopScanner::list_images(path).await
             }
             "get_desktop_paths" => DesktopScanner::get_desktop_paths().await,
-            _ => ActionResult { success: false, output: String::new(), error: format!("Unknown action: {}", action) },
+            _ => ActionResult { success: false, output: String::new(), error: format!("Unknown action: {}", action), action: action.to_string(), params: params.clone() },
         }
     }
 
@@ -186,6 +239,7 @@ impl WhatszaraOrchestrator {
             "available_providers": names,
             "journal_entries": self.actions_journal.len(),
             "reversible_actions": self.actions_journal.reversible().len(),
+            "policy": self.policy.to_json(),
         })
     }
 }

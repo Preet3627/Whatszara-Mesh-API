@@ -2,6 +2,7 @@ mod whatszara;
 
 use tauri::Manager;
 use whatszara::orchestrator::WhatszaraOrchestrator;
+use whatszara::policy::ContactMode;
 use tokio::sync::Mutex;
 
 struct OrchestratorState(Mutex<WhatszaraOrchestrator>);
@@ -13,10 +14,9 @@ fn get_status(state: tauri::State<OrchestratorState>) -> Result<String, String> 
 }
 
 #[tauri::command]
-async fn process_message(state: tauri::State<'_, OrchestratorState>, message: String) -> Result<String, String> {
-    let message_copy = message.clone();
+async fn process_message(state: tauri::State<'_, OrchestratorState>, message: String, contact: String) -> Result<String, String> {
     let orch = state.0.lock().await;
-    match orch.process_message(&message_copy).await {
+    match orch.process_message(&message, &contact).await {
         Ok(r) => Ok(r.to_string()),
         Err(e) => Ok(serde_json::json!({ "success": false, "error": e }).to_string()),
     }
@@ -79,10 +79,69 @@ fn search_contacts(query: String) -> Result<String, String> {
     }
 }
 
+// ── Policy management commands ──
+
+#[tauri::command]
+fn get_policy(state: tauri::State<OrchestratorState>) -> Result<String, String> {
+    let orch = state.0.blocking_lock();
+    Ok(orch.policy.to_json().to_string())
+}
+
+#[tauri::command]
+async fn update_permissions(
+    state: tauri::State<'_, OrchestratorState>,
+    shell: Option<bool>,
+    file_access: Option<bool>,
+    media_control: Option<bool>,
+    app_launching: Option<bool>,
+    whatsapp: Option<bool>,
+) -> Result<String, String> {
+    let mut orch = state.0.lock().await;
+    if let Some(v) = shell { orch.policy.tool_permissions.shell_enabled = v; }
+    if let Some(v) = file_access { orch.policy.tool_permissions.file_access_enabled = v; }
+    if let Some(v) = media_control { orch.policy.tool_permissions.media_control_enabled = v; }
+    if let Some(v) = app_launching { orch.policy.tool_permissions.app_launching_enabled = v; }
+    if let Some(v) = whatsapp { orch.policy.tool_permissions.whatsapp_enabled = v; }
+    Ok(serde_json::json!({ "success": true }).to_string())
+}
+
+#[tauri::command]
+async fn update_allowlist(
+    state: tauri::State<'_, OrchestratorState>,
+    action: String,
+    jid: String,
+) -> Result<String, String> {
+    let mut orch = state.0.lock().await;
+    match action.as_str() {
+        "add" => { orch.policy.add_to_allowlist(&jid); Ok(serde_json::json!({ "success": true }).to_string()) }
+        "remove" => { orch.policy.remove_from_allowlist(&jid); Ok(serde_json::json!({ "success": true }).to_string()) }
+        _ => Ok(serde_json::json!({ "success": false, "error": "Invalid action, use 'add' or 'remove'" }).to_string()),
+    }
+}
+
+#[tauri::command]
+async fn update_contact_mode(
+    state: tauri::State<'_, OrchestratorState>,
+    jid: String,
+    mode: String,
+) -> Result<String, String> {
+    let contact_mode = match mode.as_str() {
+        "assistant" => ContactMode::Assistant,
+        "chat" => ContactMode::Chat,
+        "summarize" => ContactMode::Summarize,
+        "blocked" => ContactMode::Blocked,
+        _ => return Ok(serde_json::json!({ "success": false, "error": "Invalid mode, use: assistant, chat, summarize, blocked" }).to_string()),
+    };
+    let mut orch = state.0.lock().await;
+    orch.policy.set_contact_mode(&jid, contact_mode);
+    Ok(serde_json::json!({ "success": true }).to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let mut orch = WhatszaraOrchestrator::new();
     orch.register_default_providers();
+    orch.policy.add_to_allowlist("self");
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -97,6 +156,10 @@ pub fn run() {
             set_active_provider,
             list_chats,
             search_contacts,
+            get_policy,
+            update_permissions,
+            update_allowlist,
+            update_contact_mode,
         ])
         .setup(|app| {
             #[cfg(desktop)]

@@ -47,8 +47,12 @@ WhatsApp Message ──▶ Orchestrator ──▶ LLM (Ollama/Claude/Groq/etc.)
 - [x] Multi-LLM provider abstraction (Ollama, Claude, Groq, Grok, Gemini, Vercel AI SDK) in Rust
 - [x] Live model list fetching for Ollama
 - [x] Tauri desktop app with system tray
-- [x] Permission engine with 3 risk profiles (High/Medium/Low)
-- [x] Shell command executor with blocklist
+- [x] Policy engine with 3 risk profiles (High/Medium/Low)
+- [x] Per-tool permissions (independently toggle shell, file, media, apps, WhatsApp)
+- [x] Structured action types with propose → evaluate → execute flow
+- [x] WhatsApp account allowlist
+- [x] Contact modes: Assistant / Chat / Summarize / Blocked
+- [x] Shell command executor with blocklist (disabled by default)
 - [x] App launcher with aliases
 - [x] Volume control + media playback (macOS)
 - [x] Desktop image scanner
@@ -61,8 +65,7 @@ WhatsApp Message ──▶ Orchestrator ──▶ LLM (Ollama/Claude/Groq/etc.)
 ### 🔄 In Progress
 - [ ] Image-to-text + reCAPTCHA verification integration
 - [ ] WhatsApp incoming message webhook
-- [ ] Permission configuration GUI
-- [ ] Action history viewer
+- [ ] Action history viewer (detail view)
 
 ### 📋 Planned
 - [ ] Scheduled/automated actions
@@ -88,9 +91,12 @@ WhatsApp Message ──▶ Orchestrator ──▶ LLM (Ollama/Claude/Groq/etc.)
 │             │                 │  └─────────────────────────┘  │   │
 │             │                 │                               │   │
 │             │                 │  ┌─────────────────────────┐  │   │
-│   ┌─────────▼──────────┐     │  │  Permission Engine       │  │   │
+│   ┌─────────▼──────────┐     │  │  Policy Engine           │  │   │
 │   │  SQLite (Messages)  │◀────│  │  - 3 risk profiles      │  │   │
-│   │  (Rust reads dir.)  │     │  │  - reCAPTCHA + Image-txt│  │   │
+│   │  (Rust reads dir.)  │     │  │  - Per-tool permissions │  │   │
+│   │                     │     │  │  - Allowlist            │  │   │
+│   │                     │     │  │  - Contact modes        │  │   │
+│   │                     │     │  │  - reCAPTCHA + Image-txt│  │   │
 │   └─────────────────────┘     │  └─────────────────────────┘  │   │
 │                               │                               │   │
 │                               │  ┌─────────────────────────┐  │   │
@@ -164,13 +170,44 @@ export XAI_API_KEY=...
 export GEMINI_API_KEY=...
 ```
 
-## Permission System
+## Policy & Permission System
+
+Whatszara uses a **propose → evaluate → execute** flow. Every action is validated against policy before execution.
+
+### Risk Profiles
 
 | Risk Level | Example Actions | Verification Required |
 |-----------|----------------|---------------------|
 | **Low** | Read volume, list files, get time | None (logged only) |
 | **Medium** | Open apps, play music, send files | Image-to-text CAPTCHA |
 | **High** | Shell commands, delete, install software | reCAPTCHA + image-to-text + confirm |
+
+### Per-Tool Permissions
+
+Each tool category can be independently enabled/disabled:
+
+| Category | Default | Actions |
+|----------|---------|---------|
+| Shell | **Disabled** | `execute_shell`, `run_command` |
+| File Access | Enabled | `list_files`, `list_images`, `send_file`, `get_desktop_paths` |
+| Media Control | Enabled | `get_volume`, `set_volume`, `play_media`, `pause_media`, `next_track`, `prev_track` |
+| App Launching | Enabled | `open_app` |
+| WhatsApp | Enabled | `send_message`, `search_contacts`, `list_chats` |
+
+### Allowlist
+
+Only WhatsApp JIDs in the allowlist can control the assistant. Default: only `self` is allowed. Add contacts via the Permissions tab in the GUI or the `update_allowlist` Tauri command.
+
+### Contact Modes
+
+Each allowed contact can be assigned a mode:
+
+| Mode | Behavior |
+|------|----------|
+| **Assistant** | Full desktop control — LLM can execute actions |
+| **Chat** | LLM responds with text only — no actions executed |
+| **Summarize** | Messages are summarized in 2-3 sentences (default) |
+| **Blocked** | Contact is rejected at the policy level |
 
 ## License
 
