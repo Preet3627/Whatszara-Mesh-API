@@ -1,6 +1,8 @@
 mod whatszara;
 
+use std::io::BufRead;
 use std::process::{Command, Child, Stdio};
+use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
 use tauri::Manager;
 use whatszara::orchestrator::WhatszaraOrchestrator;
@@ -8,7 +10,11 @@ use whatszara::policy::ContactMode;
 use tokio::sync::Mutex;
 
 struct OrchestratorState(Mutex<WhatszaraOrchestrator>);
-struct BridgeProcess(StdMutex<Option<Child>>);
+struct BridgeProcess {
+    child: StdMutex<Option<Child>>,
+    qr_code: StdMutex<String>,
+    output: StdMutex<String>,
+}
 
 #[tauri::command]
 fn get_status(state: tauri::State<OrchestratorState>) -> Result<String, String> {
@@ -139,9 +145,9 @@ async fn update_contact_mode(
 }
 
 #[tauri::command]
-async fn check_bridge(state: tauri::State<'_, BridgeProcess>) -> Result<String, String> {
+async fn check_bridge(state: tauri::State<'_, Arc<BridgeProcess>>) -> Result<String, String> {
     let alive = {
-        let mut guard = state.0.lock().unwrap();
+        let mut guard = state.child.lock().unwrap();
         if guard.is_none() {
             return Ok(serde_json::json!({"status": "stopped"}).to_string());
         }
@@ -174,11 +180,90 @@ async fn check_bridge(state: tauri::State<'_, BridgeProcess>) -> Result<String, 
             .build()
             .map_err(|e| e.to_string())?;
         let connected = client.get("http://localhost:8080/api/send").send().await.is_ok();
-        let status = if connected { "connected" } else { "running" };
-        Ok(serde_json::json!({"status": status}).to_string())
+        let qr_code = state.qr_code.lock().unwrap().clone();
+        let has_qr = !qr_code.is_empty();
+
+        let was_connected = state.output.lock().unwrap().contains("CONNECTED_SAVED");
+        let status = if connected {
+            if !was_connected {
+                state.output.lock().unwrap().push_str("CONNECTED_SAVED\n");
+                if let Ok(data) = std::fs::read(whatszara::whatsapp::session_db_path()) {
+                    let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &data);
+                    let _ = std::process::Command::new("security")
+                        .args(["add-generic-password", "-s", "whatszara-wa-session", "-a", "whatszara", "-w", &b64, "-U"])
+                        .output();
+                }
+            }
+            "connected"
+        } else if has_qr { "awaiting_scan" } else { "running" };
+        Ok(serde_json::json!({"status": status, "qr": qr_code}).to_string())
     } else {
         Ok(serde_json::json!({"status": "stopped"}).to_string())
     }
+}
+
+#[tauri::command]
+async fn logout_bridge(state: tauri::State<'_, Arc<BridgeProcess>>) -> Result<String, String> {
+    {
+        let mut guard = state.child.lock().unwrap();
+        if let Some(mut child) = guard.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+    {
+        let mut output = state.output.lock().unwrap();
+        output.clear();
+    }
+    {
+        let mut qr = state.qr_code.lock().unwrap();
+        qr.clear();
+    }
+    let _ = std::process::Command::new("security")
+        .args(["delete-generic-password", "-s", "whatszara-wa-session", "-a", "whatszara"])
+        .output();
+    let _ = std::fs::remove_file(whatszara::whatsapp::session_db_path());
+    Ok(serde_json::json!({"success": true}).to_string())
+}
+
+#[tauri::command]
+fn list_contacts() -> Result<String, String> {
+    match whatszara::whatsapp::list_all_contacts() {
+        Ok(contacts) => Ok(serde_json::to_string(&contacts).unwrap_or_default()),
+        Err(e) => Ok(serde_json::json!({ "error": e }).to_string()),
+    }
+}
+
+#[tauri::command]
+fn list_messages(jid: String, limit: Option<usize>) -> Result<String, String> {
+    match whatszara::whatsapp::list_messages(&jid, limit.unwrap_or(50)) {
+        Ok(msgs) => Ok(serde_json::to_string(&msgs).unwrap_or_default()),
+        Err(e) => Ok(serde_json::json!({ "error": e }).to_string()),
+    }
+}
+
+fn save_keychain(data: &[u8]) -> Result<(), String> {
+    use std::process::Command;
+    let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, data);
+    Command::new("security")
+        .args(["add-generic-password", "-s", "whatszara-wa-session", "-a", "whatszara", "-w", &b64, "-U"])
+        .output()
+        .map_err(|e| format!("Keychain write error: {}", e))?;
+    Ok(())
+}
+
+fn load_keychain() -> Result<Vec<u8>, String> {
+    use std::process::Command;
+    let out = Command::new("security")
+        .args(["find-generic-password", "-s", "whatszara-wa-session", "-a", "whatszara", "-w"])
+        .output()
+        .map_err(|e| format!("Keychain read error: {}", e))?;
+    if !out.status.success() {
+        return Err("No keychain entry".into());
+    }
+    let b64 = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &b64)
+        .map_err(|e| format!("Base64 decode: {}", e))
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -190,7 +275,11 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .manage(OrchestratorState(Mutex::new(orch)))
-        .manage(BridgeProcess(StdMutex::new(None)))
+        .manage(Arc::new(BridgeProcess {
+            child: StdMutex::new(None),
+            qr_code: StdMutex::new(String::new()),
+            output: StdMutex::new(String::new()),
+        }))
         .invoke_handler(tauri::generate_handler![
             get_status,
             process_message,
@@ -206,6 +295,9 @@ pub fn run() {
             update_allowlist,
             update_contact_mode,
             check_bridge,
+            logout_bridge,
+            list_contacts,
+            list_messages,
         ])
         .setup(|app| {
             #[cfg(desktop)]
@@ -224,15 +316,47 @@ pub fn run() {
                 };
 
                 if bridge_path.join("main.go").exists() {
-                    let child = Command::new("go")
+                    if let Ok(data) = load_keychain() {
+                        let db_path = bridge_path.join("store").join("whatsapp.db");
+                        if let Some(parent) = db_path.parent() {
+                            let _ = std::fs::create_dir_all(parent);
+                        }
+                        let _ = std::fs::write(&db_path, &data);
+                    }
+
+                    let bridge_state = app.state::<Arc<BridgeProcess>>();
+                    match Command::new("go")
                         .args(["run", "main.go"])
                         .current_dir(&bridge_path)
-                        .stdout(Stdio::inherit())
+                        .stdout(Stdio::piped())
                         .stderr(Stdio::inherit())
                         .spawn()
-                        .ok();
-                    let state = app.state::<BridgeProcess>();
-                    *state.0.lock().unwrap() = child;
+                    {
+                        Ok(mut child) => {
+                            if let Some(stdout) = child.stdout.take() {
+                                let state_clone = Arc::clone(&*bridge_state);
+                                std::thread::spawn(move || {
+                                    let reader = std::io::BufReader::new(stdout);
+                                    for line in reader.lines() {
+                                        if let Ok(line) = line {
+                                            let mut output = state_clone.output.lock().unwrap();
+                                            output.push_str(&line);
+                                            output.push('\n');
+                                            if line.starts_with("QR_CODE:") {
+                                                let code = line.trim_start_matches("QR_CODE:").to_string();
+                                                *state_clone.qr_code.lock().unwrap() = code;
+                                            }
+                                        }
+                                    }
+                                });
+                            }
+                            *bridge_state.child.lock().unwrap() = Some(child);
+                        }
+                        Err(e) => {
+                            let mut output = bridge_state.output.lock().unwrap();
+                            output.push_str(&format!("Failed to start bridge: {}\n", e));
+                        }
+                    }
                 }
 
                 use tauri::tray::{TrayIconBuilder, TrayIconEvent};

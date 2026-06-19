@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use rusqlite::Connection;
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -25,6 +26,13 @@ pub struct Message {
     pub content: String,
     pub timestamp: String,
     pub media_type: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ContactInfo {
+    pub jid: String,
+    pub name: String,
+    pub last_active: Option<String>,
 }
 
 fn db_path() -> PathBuf {
@@ -108,4 +116,49 @@ pub fn list_messages(chat_jid: &str, limit: usize) -> Result<Vec<Message>, Strin
         msgs.push(row.map_err(|e| e.to_string())?);
     }
     Ok(msgs)
+}
+
+pub fn list_all_contacts() -> Result<Vec<ContactInfo>, String> {
+    let conn = connect()?;
+    let mut seen = HashMap::new();
+    if let Ok(mut stmt) = conn.prepare("SELECT jid, name FROM contacts") {
+        if let Ok(rows) = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        }) {
+            for row in rows.flatten() {
+                seen.insert(row.0, row.1);
+            }
+        }
+    }
+    if let Ok(mut stmt) = conn.prepare("SELECT jid, COALESCE(name, ''), last_active FROM chats ORDER BY last_active DESC") {
+        if let Ok(rows) = stmt.query_map([], |row| {
+            Ok(ContactInfo {
+                jid: row.get(0)?,
+                name: {
+                    let n: String = row.get(1)?;
+                    if n.is_empty() { seen.get(&row.get::<_, String>(0)?).cloned().unwrap_or_default() } else { n }
+                },
+                last_active: row.get(2)?,
+            })
+        }) {
+            let mut contacts: Vec<ContactInfo> = rows.filter_map(|r| r.ok()).collect();
+            for (jid, name) in seen {
+                if !contacts.iter().any(|c| c.jid == jid) {
+                    contacts.push(ContactInfo { jid, name, last_active: None });
+                }
+            }
+            return Ok(contacts);
+        }
+    }
+    Ok(seen.into_iter().map(|(jid, name)| ContactInfo { jid, name, last_active: None }).collect())
+}
+
+pub fn session_db_path() -> PathBuf {
+    let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    p.pop();
+    p.pop();
+    p.push("whatsapp-bridge");
+    p.push("store");
+    p.push("whatsapp.db");
+    p
 }

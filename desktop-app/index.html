@@ -58,7 +58,15 @@
                 <div class="step-body">
                   <h4>WhatsApp Bridge</h4>
                   <p id="bridge-status-text">Starting bridge...</p>
+                  <div id="qr-container" class="qr-container hidden">
+                    <p class="qr-instruction">Scan this QR code with WhatsApp on your phone:</p>
+                    <canvas id="qr-canvas"></canvas>
+                    <p class="qr-hint">Open WhatsApp → Linked Devices → Link a Device</p>
+                  </div>
                   <pre id="bridge-error-detail" class="code-block hidden"></pre>
+                  <div id="bridge-logout" class="hidden" style="margin-top:12px;">
+                    <button class="btn btn-danger btn-small" id="logout-bridge">Logout & Disconnect</button>
+                  </div>
                 </div>
               </div>
               <div class="setup-step" id="step-provider">
@@ -171,27 +179,61 @@
             </div>
           </div>
           <div class="section">
-            <h3>Allowlist</h3>
-            <div class="row">
-              <input type="text" id="allowlist-jid" placeholder="1234567890@s.whatsapp.net" />
-              <button class="btn" id="allowlist-add">Add</button>
-              <button class="btn" id="allowlist-remove">Remove</button>
+            <h3>Contacts</h3>
+            <input type="text" id="contacts-search" placeholder="Search contacts..." class="search-input" />
+            <div style="overflow-x: auto;">
+              <table class="contacts-table" id="contacts-table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>JID</th>
+                    <th>Allowlisted</th>
+                    <th>Mode</th>
+                  </tr>
+                </thead>
+                <tbody id="contacts-table-body"></tbody>
+              </table>
             </div>
-            <pre id="allowlist-display" class="code-block">Loading...</pre>
+            <p id="contacts-status" class="text-muted" style="margin-top: 8px;">Loading contacts...</p>
           </div>
-          <div class="section">
-            <h3>Contact Modes</h3>
-            <div class="row">
-              <input type="text" id="contact-jid" placeholder="1234567890@s.whatsapp.net" />
-              <select id="contact-mode-select">
-                <option value="assistant">Assistant</option>
-                <option value="chat">Chat Only</option>
-                <option value="summarize" selected>Summarize</option>
-                <option value="blocked">Blocked</option>
-              </select>
-              <button class="btn" id="contact-mode-set">Set Mode</button>
+        </div>
+
+        <div class="view hidden" id="view-chat">
+          <div class="chat-layout">
+            <div class="chat-contacts-panel">
+              <div class="chat-contacts-header">
+                <h3>Contacts</h3>
+              </div>
+              <input type="text" id="chat-search" placeholder="Search contacts..." class="search-input" />
+              <div id="chat-contact-list" class="chat-contact-list"></div>
             </div>
-            <pre id="contact-modes-display" class="code-block">Loading...</pre>
+            <div class="chat-main-panel">
+              <div id="chat-placeholder" class="chat-placeholder">
+                <div class="chat-placeholder-content">
+                  <div class="chat-placeholder-icon">
+                    <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                      <line x1="12" y1="8" x2="12" y2="14"/><line x1="9" y1="11" x2="15" y2="11"/>
+                    </svg>
+                  </div>
+                  <h3>Select a Conversation</h3>
+                  <p>Choose a contact from the left panel to view your message history and pending actions.</p>
+                </div>
+              </div>
+              <div id="chat-conversation" class="hidden">
+                <div class="chat-header">
+                  <h3 id="chat-contact-name">Contact Name</h3>
+                  <span id="chat-contact-jid" class="text-muted"></span>
+                </div>
+                <div id="chat-messages" class="chat-messages"></div>
+                <div id="chat-actions" class="chat-actions-section">
+                  <h4>Pending Actions</h4>
+                  <div id="chat-actions-list" class="chat-actions-list">
+                    <p class="text-muted">No pending actions</p>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 

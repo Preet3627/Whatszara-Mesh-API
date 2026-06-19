@@ -1,4 +1,5 @@
 // Whatszara Desktop App - Main
+import QRCode from "qrcode";
 
 // ── Navigation ──
 document.querySelectorAll(".nav-item").forEach((btn) => {
@@ -10,7 +11,8 @@ document.querySelectorAll(".nav-item").forEach((btn) => {
     const target = document.getElementById(`view-${view}`);
     if (target) target.classList.remove("hidden");
     if (view === "dashboard") refreshDashboard();
-    if (view === "permissions") refreshPolicy();
+    if (view === "permissions") refreshContactsTable();
+    if (view === "chat") refreshChatContacts();
     if (view === "actions") refreshActionLog();
     if (view === "providers") refreshModels();
   });
@@ -39,6 +41,8 @@ async function pollBridge() {
   }
 }
 
+let lastQrCode = "";
+
 function updateBridgeUI(status) {
   const badge = document.getElementById("status-badge");
   const indicator = document.getElementById("bridge-indicator");
@@ -47,6 +51,8 @@ function updateBridgeUI(status) {
   const statusText = document.getElementById("bridge-status-text");
   const errorDetail = document.getElementById("bridge-error-detail");
   const waStatus = document.getElementById("wa-status");
+  const qrContainer = document.getElementById("qr-container");
+  const qrCanvas = document.getElementById("qr-canvas");
 
   const stepBridge = document.getElementById("step-bridge");
   const stepProvider = document.getElementById("step-provider");
@@ -54,7 +60,7 @@ function updateBridgeUI(status) {
 
   // Update sidebar badge
   if (badge) {
-    const labels = { stopped: "stopped", running: "starting…", connected: "connected", error: "error" };
+    const labels = { stopped: "stopped", running: "starting…", awaiting_scan: "scan QR", connected: "connected", error: "error" };
     badge.textContent = labels[status.status] || status.status;
     badge.classList.toggle("connected", status.status === "connected");
     badge.classList.toggle("error", status.status === "error");
@@ -62,7 +68,7 @@ function updateBridgeUI(status) {
 
   // Update WhatsApp status stat
   if (waStatus) {
-    const labels = { stopped: "Bridge Stopped", running: "Connecting…", connected: "Connected", error: "Bridge Error" };
+    const labels = { stopped: "Bridge Stopped", running: "Connecting…", awaiting_scan: "Scan QR Code", connected: "Connected", error: "Bridge Error" };
     waStatus.textContent = labels[status.status] || "Unknown";
     waStatus.style.color = status.status === "connected" ? "var(--green)" : status.status === "error" ? "var(--red)" : "var(--yellow)";
   }
@@ -72,9 +78,9 @@ function updateBridgeUI(status) {
     indicator.className = "step-indicator";
     indicator.classList.add(`step-${status.status}`);
   }
-  if (spinner) spinner.classList.toggle("hidden", status.status !== "running" && status.status !== "starting");
+  if (spinner) spinner.classList.toggle("hidden", status.status !== "running" && status.status !== "starting" && status.status !== "awaiting_scan");
   if (icon) {
-    const showIcon = status.status !== "running" && status.status !== "starting";
+    const showIcon = status.status !== "running" && status.status !== "starting" && status.status !== "awaiting_scan";
     icon.classList.toggle("hidden", !showIcon);
     if (showIcon) {
       const icons = { stopped: "✕", connected: "✓", error: "✕" };
@@ -82,11 +88,25 @@ function updateBridgeUI(status) {
     }
   }
 
+  // QR code display
+  if (status.status === "awaiting_scan" && status.qr && status.qr !== lastQrCode) {
+    lastQrCode = status.qr;
+    if (qrContainer) qrContainer.classList.remove("hidden");
+    if (qrCanvas) {
+      QRCode.toCanvas(qrCanvas, status.qr, {
+        width: 280,
+        margin: 2,
+        color: { dark: "#000000", light: "#ffffff" },
+      });
+    }
+  }
+
   // Status text
   if (statusText) {
     const texts = {
       stopped: "Bridge is not running. Try restarting the app.",
-      running: "Bridge process is running. Waiting for WhatsApp connection… (scan the QR code in the terminal)",
+      running: "Bridge process is running, waiting for QR code from WhatsApp…",
+      awaiting_scan: "Scan the QR code below with WhatsApp on your phone.",
       connected: "Bridge is connected to WhatsApp!",
       error: `Bridge failed: ${status.error || "Unknown error"}`,
     };
@@ -106,6 +126,10 @@ function updateBridgeUI(status) {
   // Step progression
   if (stepBridge) stepBridge.classList.toggle("completed", status.status === "connected");
   if (stepProvider) stepProvider.classList.toggle("active", status.status === "connected");
+
+  // Logout button visibility
+  const logoutDiv = document.getElementById("bridge-logout");
+  if (logoutDiv) logoutDiv.classList.toggle("hidden", status.status !== "connected");
 }
 
 // ── Dashboard ──
@@ -121,24 +145,88 @@ async function refreshDashboard() {
   pollBridge();
 }
 
-// ── Policy Management ──
-async function refreshPolicy() {
-  const raw = await invoke("get_policy");
+// ── Policy Management (Contacts Table) ──
+let allContacts = [];
+let cachedPolicy = null;
+let contactsSearchTerm = "";
+
+async function refreshContactsTable() {
+  const tbody = document.getElementById("contacts-table-body");
+  const status = document.getElementById("contacts-status");
+  if (!tbody) return;
   try {
-    const policy = JSON.parse(raw);
-    document.getElementById("allowlist-display").textContent =
-      JSON.stringify(policy.allowlist || [], null, 2);
-    document.getElementById("contact-modes-display").textContent =
-      JSON.stringify(policy.contact_modes || {}, null, 2);
-    document.getElementById("perm-shell").checked = policy.tool_permissions?.shell ?? false;
-    document.getElementById("perm-file-access").checked = policy.tool_permissions?.file_access ?? true;
-    document.getElementById("perm-media-control").checked = policy.tool_permissions?.media_control ?? true;
-    document.getElementById("perm-app-launching").checked = policy.tool_permissions?.app_launching ?? true;
-    document.getElementById("perm-whatsapp").checked = policy.tool_permissions?.whatsapp ?? true;
+    const [contactsRaw, policyRaw] = await Promise.all([
+      invoke("list_contacts"),
+      invoke("get_policy"),
+    ]);
+    const contacts = JSON.parse(contactsRaw);
+    cachedPolicy = JSON.parse(policyRaw);
+    allContacts = contacts;
+    renderContactsTable(contacts, cachedPolicy);
+    if (status) status.textContent = `${contacts.length} contacts loaded`;
   } catch (e) {
-    console.error("Failed to load policy", e);
+    console.error("Failed to load contacts", e);
+    if (status) status.textContent = "Failed to load contacts";
   }
 }
+
+function renderContactsTable(contacts, policy) {
+  const tbody = document.getElementById("contacts-table-body");
+  const allowlist = policy.allowlist || [];
+  const contactModes = policy.contact_modes || {};
+  tbody.innerHTML = contacts
+    .filter((c) => {
+      if (!contactsSearchTerm) return true;
+      const q = contactsSearchTerm.toLowerCase();
+      return c.jid.toLowerCase().includes(q) || c.name.toLowerCase().includes(q);
+    })
+    .map(
+      (c) => `
+    <tr>
+      <td>${escHtml(c.name || "Unknown")}</td>
+      <td style="font-size:0.8rem;color:var(--text-muted);">${escHtml(c.jid)}</td>
+      <td>
+        <label class="toggle" style="background:none;border:none;padding:0;margin:0;">
+          <input type="checkbox" ${allowlist.includes(c.jid) ? "checked" : ""} data-jid="${escHtml(c.jid)}" class="allowlist-toggle" />
+        </label>
+      </td>
+      <td>
+        <select class="contact-mode-select" data-jid="${escHtml(c.jid)}">
+          <option value="assistant" ${contactModes[c.jid] === "assistant" ? "selected" : ""}>Assistant</option>
+          <option value="chat" ${contactModes[c.jid] === "chat" ? "selected" : ""}>Chat Only</option>
+          <option value="summarize" ${(contactModes[c.jid] || "summarize") === "summarize" ? "selected" : ""}>Summarize</option>
+          <option value="blocked" ${contactModes[c.jid] === "blocked" ? "selected" : ""}>Blocked</option>
+        </select>
+      </td>
+    </tr>`
+    )
+    .join("");
+}
+
+function escHtml(s) {
+  const div = document.createElement("div");
+  div.textContent = s;
+  return div.innerHTML;
+}
+
+document.getElementById("contacts-search")?.addEventListener("input", (e) => {
+  contactsSearchTerm = e.target.value;
+  if (cachedPolicy) renderContactsTable(allContacts, cachedPolicy);
+});
+
+document.getElementById("contacts-table-body")?.addEventListener("change", async (e) => {
+  const target = e.target;
+  if (target.classList.contains("allowlist-toggle")) {
+    const jid = target.dataset.jid;
+    await invoke("update_allowlist", { action: target.checked ? "add" : "remove", jid });
+  } else if (target.classList.contains("contact-mode-select")) {
+    const jid = target.dataset.jid;
+    await invoke("update_contact_mode", { jid, mode: target.value });
+  }
+  const raw = await invoke("get_policy");
+  cachedPolicy = JSON.parse(raw);
+  renderContactsTable(allContacts, cachedPolicy);
+});
 
 document.querySelectorAll("[data-perm]").forEach((cb) => {
   cb.addEventListener("change", async () => {
@@ -147,31 +235,6 @@ document.querySelectorAll("[data-perm]").forEach((cb) => {
     args[perm] = cb.checked;
     await invoke("update_permissions", args);
   });
-});
-
-document.getElementById("allowlist-add")?.addEventListener("click", async () => {
-  const jid = document.getElementById("allowlist-jid").value.trim();
-  if (!jid) return;
-  await invoke("update_allowlist", { action: "add", jid });
-  document.getElementById("allowlist-jid").value = "";
-  refreshPolicy();
-});
-
-document.getElementById("allowlist-remove")?.addEventListener("click", async () => {
-  const jid = document.getElementById("allowlist-jid").value.trim();
-  if (!jid) return;
-  await invoke("update_allowlist", { action: "remove", jid });
-  document.getElementById("allowlist-jid").value = "";
-  refreshPolicy();
-});
-
-document.getElementById("contact-mode-set")?.addEventListener("click", async () => {
-  const jid = document.getElementById("contact-jid").value.trim();
-  const mode = document.getElementById("contact-mode-select").value;
-  if (!jid) return;
-  await invoke("update_contact_mode", { jid, mode });
-  document.getElementById("contact-jid").value = "";
-  refreshPolicy();
 });
 
 // ── Providers ──
@@ -188,6 +251,83 @@ async function refreshModels() {
 document.getElementById("active-provider-select")?.addEventListener("change", async (e) => {
   await invoke("set_active_provider", { name: e.target.value });
 });
+
+// ── Chat View ──
+let chatContacts = [];
+let selectedChatJid = null;
+
+async function refreshChatContacts() {
+  try {
+    const raw = await invoke("list_contacts");
+    chatContacts = JSON.parse(raw);
+    renderChatContacts(chatContacts);
+  } catch (e) {
+    console.error("Failed to load chat contacts", e);
+  }
+}
+
+function renderChatContacts(contacts) {
+  const list = document.getElementById("chat-contact-list");
+  const search = (document.getElementById("chat-search")?.value || "").toLowerCase();
+  list.innerHTML = contacts
+    .filter((c) => {
+      if (!search) return true;
+      return c.jid.toLowerCase().includes(search) || c.name.toLowerCase().includes(search);
+    })
+    .map(
+      (c) => `
+    <button class="chat-contact-item ${selectedChatJid === c.jid ? "active" : ""}" data-jid="${escHtml(c.jid)}">
+      <div class="avatar">${(c.name || "?")[0].toUpperCase()}</div>
+      <div class="contact-info">
+        <div class="contact-name">${escHtml(c.name || "Unknown")}</div>
+        <div class="contact-jid-sm">${escHtml(c.jid)}</div>
+      </div>
+    </button>`
+    )
+    .join("");
+}
+
+document.getElementById("chat-search")?.addEventListener("input", () => {
+  renderChatContacts(chatContacts);
+});
+
+document.getElementById("chat-contact-list")?.addEventListener("click", async (e) => {
+  const item = e.target.closest(".chat-contact-item");
+  if (!item) return;
+  selectedChatJid = item.dataset.jid;
+  renderChatContacts(chatContacts);
+  const name = item.querySelector(".contact-name")?.textContent || selectedChatJid;
+  document.getElementById("chat-contact-name").textContent = name;
+  document.getElementById("chat-contact-jid").textContent = selectedChatJid;
+  document.getElementById("chat-placeholder").classList.add("hidden");
+  document.getElementById("chat-conversation").classList.remove("hidden");
+  await loadMessages(selectedChatJid);
+});
+
+async function loadMessages(jid) {
+  const container = document.getElementById("chat-messages");
+  const actionsList = document.getElementById("chat-actions-list");
+  container.innerHTML = '<p class="text-muted">Loading messages...</p>';
+  try {
+    const raw = await invoke("list_messages", { jid, limit: 50 });
+    const msgs = JSON.parse(raw);
+    container.innerHTML = msgs.length
+      ? msgs
+          .map(
+            (m) => `
+        <div class="message-bubble ${m.sender === m.chat_jid ? "incoming" : "outgoing"}">
+          <div>${escHtml(m.content || "(media)")}</div>
+          <div class="message-meta">${m.timestamp || ""}${m.media_type ? " · " + escHtml(m.media_type) : ""}</div>
+        </div>`
+          )
+          .join("")
+      : '<p class="text-muted">No messages yet</p>';
+    container.scrollTop = container.scrollHeight;
+  } catch (e) {
+    container.innerHTML = '<p class="text-muted">Failed to load messages</p>';
+  }
+  actionsList.innerHTML = '<p class="text-muted">No pending actions</p>';
+}
 
 // ── Action Log ──
 async function refreshActionLog() {
@@ -225,6 +365,20 @@ document.querySelectorAll("#setup-wizard .btn[data-view]").forEach((btn) => {
     const navItem = document.querySelector(`.nav-item[data-view="${view}"]`);
     if (navItem) navItem.click();
   });
+});
+
+// ── Logout ──
+document.getElementById("logout-bridge")?.addEventListener("click", async () => {
+  if (!confirm("Logout from WhatsApp? This will disconnect your session and require re-authentication via QR code.")) return;
+  try {
+    await invoke("logout_bridge");
+    lastQrCode = "";
+    const qrContainer = document.getElementById("qr-container");
+    if (qrContainer) qrContainer.classList.add("hidden");
+    pollBridge();
+  } catch (e) {
+    console.error("Logout failed", e);
+  }
 });
 
 // ── Init ──
