@@ -73,6 +73,15 @@ async fn set_active_provider(state: tauri::State<'_, OrchestratorState>, name: S
 }
 
 #[tauri::command]
+async fn set_model(state: tauri::State<'_, OrchestratorState>, provider: String, model: String) -> Result<String, String> {
+    let mut orch = state.0.lock().await;
+    match orch.providers.set_model(&provider, &model) {
+        Ok(()) => Ok(serde_json::json!({ "success": true }).to_string()),
+        Err(e) => Ok(serde_json::json!({ "success": false, "error": e }).to_string()),
+    }
+}
+
+#[tauri::command]
 fn list_chats(limit: usize) -> Result<String, String> {
     match whatszara::whatsapp::list_chats(limit) {
         Ok(chats) => Ok(serde_json::to_string(&chats).unwrap_or_default()),
@@ -290,6 +299,7 @@ pub fn run() {
             set_active_provider,
             list_chats,
             search_contacts,
+            set_model,
             get_policy,
             update_permissions,
             update_allowlist,

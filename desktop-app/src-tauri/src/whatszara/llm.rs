@@ -20,6 +20,8 @@ pub trait LLMProvider: Send + Sync {
     async fn chat(&self, messages: &[LLMMessage], system_prompt: Option<&str>) -> Result<LLMResponse, String>;
     async fn list_models(&self) -> Result<Vec<String>, String>;
     fn default_model(&self) -> &str;
+    fn set_model(&mut self, model: &str);
+    fn current_model(&self) -> &str;
 }
 
 // ── Ollama ─────────────────────────────────────
@@ -31,6 +33,8 @@ pub struct OllamaProvider {
 #[async_trait::async_trait]
 impl LLMProvider for OllamaProvider {
     fn name(&self) -> &str { "ollama" }
+    fn current_model(&self) -> &str { &self.model }
+    fn set_model(&mut self, model: &str) { self.model = model.to_string(); }
 
     async fn chat(&self, messages: &[LLMMessage], system_prompt: Option<&str>) -> Result<LLMResponse, String> {
         let client = reqwest::Client::new();
@@ -82,6 +86,8 @@ pub struct ClaudeProvider {
 #[async_trait::async_trait]
 impl LLMProvider for ClaudeProvider {
     fn name(&self) -> &str { "claude" }
+    fn current_model(&self) -> &str { &self.model }
+    fn set_model(&mut self, model: &str) { self.model = model.to_string(); }
 
     async fn chat(&self, messages: &[LLMMessage], system_prompt: Option<&str>) -> Result<LLMResponse, String> {
         let client = reqwest::Client::new();
@@ -129,6 +135,8 @@ pub struct GroqProvider {
 #[async_trait::async_trait]
 impl LLMProvider for GroqProvider {
     fn name(&self) -> &str { "groq" }
+    fn current_model(&self) -> &str { &self.model }
+    fn set_model(&mut self, model: &str) { self.model = model.to_string(); }
 
     async fn chat(&self, messages: &[LLMMessage], system_prompt: Option<&str>) -> Result<LLMResponse, String> {
         let client = reqwest::Client::new();
@@ -172,6 +180,8 @@ pub struct GrokProvider {
 #[async_trait::async_trait]
 impl LLMProvider for GrokProvider {
     fn name(&self) -> &str { "grok" }
+    fn current_model(&self) -> &str { &self.model }
+    fn set_model(&mut self, model: &str) { self.model = model.to_string(); }
 
     async fn chat(&self, messages: &[LLMMessage], system_prompt: Option<&str>) -> Result<LLMResponse, String> {
         let client = reqwest::Client::new();
@@ -210,6 +220,8 @@ pub struct GeminiProvider {
 #[async_trait::async_trait]
 impl LLMProvider for GeminiProvider {
     fn name(&self) -> &str { "gemini" }
+    fn current_model(&self) -> &str { &self.model }
+    fn set_model(&mut self, model: &str) { self.model = model.to_string(); }
 
     async fn chat(&self, messages: &[LLMMessage], system_prompt: Option<&str>) -> Result<LLMResponse, String> {
         let client = reqwest::Client::new();
@@ -280,11 +292,25 @@ impl ProviderRegistry {
         self.providers.iter().map(|p| p.name().to_string()).collect()
     }
 
-    pub async fn list_all_models(&self) -> Vec<(String, Vec<String>)> {
+    pub fn set_model(&mut self, provider: &str, model: &str) -> Result<(), String> {
+        for p in &mut self.providers {
+            if p.name() == provider {
+                p.set_model(model);
+                return Ok(());
+            }
+        }
+        Err(format!("Provider '{}' not found", provider))
+    }
+
+    pub fn current_model_of(&self, provider: &str) -> Option<String> {
+        self.providers.iter().find(|p| p.name() == provider).map(|p| p.current_model().to_string())
+    }
+
+    pub async fn list_all_models(&self) -> Vec<(String, Vec<String>, String)> {
         let mut results = vec![];
         for p in &self.providers {
             let models = p.list_models().await.unwrap_or_else(|_| vec![p.default_model().to_string()]);
-            results.push((p.name().to_string(), models));
+            results.push((p.name().to_string(), models, p.current_model().to_string()));
         }
         results
     }

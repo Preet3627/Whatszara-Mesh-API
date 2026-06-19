@@ -240,17 +240,44 @@ document.querySelectorAll("[data-perm]").forEach((cb) => {
 
 // ── Providers ──
 async function refreshModels() {
+  const container = document.getElementById("models-container");
+  if (!container) return;
+  container.innerHTML = '<p class="text-muted">Loading models...</p>';
   try {
     const raw = await invoke("list_models");
-    document.getElementById("models-list").textContent =
-      JSON.stringify(JSON.parse(raw), null, 2);
+    const providers = JSON.parse(raw);
+    container.innerHTML = providers
+      .map(
+        ([name, models, current]) => `
+      <div class="model-provider-card">
+        <div class="model-provider-header">
+          <h4>${escHtml(name)}</h4>
+          <span class="model-count">${models.length} model${models.length !== 1 ? "s" : ""}</span>
+        </div>
+        <select class="model-select" data-provider="${escHtml(name)}">
+          ${models.map((m) => `<option value="${escHtml(m)}" ${m === current ? "selected" : ""}>${escHtml(m)}</option>`).join("")}
+        </select>
+      </div>`
+      )
+      .join("");
   } catch {
-    document.getElementById("models-list").textContent = "Failed to fetch models";
+    container.innerHTML = '<p class="text-muted">Failed to fetch models</p>';
   }
 }
 
+document.getElementById("refresh-models")?.addEventListener("click", refreshModels);
+
+document.getElementById("models-container")?.addEventListener("change", async (e) => {
+  const select = e.target.closest(".model-select");
+  if (!select) return;
+  const provider = select.dataset.provider;
+  const model = select.value;
+  await invoke("set_model", { provider, model });
+});
+
 document.getElementById("active-provider-select")?.addEventListener("change", async (e) => {
   await invoke("set_active_provider", { name: e.target.value });
+  refreshModels();
 });
 
 // ── Chat View ──
