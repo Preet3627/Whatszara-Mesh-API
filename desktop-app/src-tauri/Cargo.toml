@@ -25,3 +25,4 @@ uuid = { version = "1", features = ["v4"] }
 async-trait = "0.1"
 shellexpand = "3"
 base64 = "0.22"
+keyring = "3"

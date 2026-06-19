@@ -376,36 +376,27 @@ async fn set_api_key(state: tauri::State<'_, OrchestratorState>, provider: Strin
 }
 
 fn save_keychain(data: &[u8], service: &str) -> Result<(), String> {
-    use std::process::Command;
     let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, data);
-    Command::new("security")
-        .args(["add-generic-password", "-s", service, "-a", "whatszara", "-w", &b64, "-U"])
-        .output()
-        .map_err(|e| format!("Keychain write error: {}", e))?;
-    Ok(())
+    let entry = keyring::Entry::new(service, "whatszara")
+        .map_err(|e| format!("Keyring entry error: {}", e))?;
+    entry.set_password(&b64)
+        .map_err(|e| format!("Keyring write error: {}", e))
 }
 
 fn load_keychain(service: &str) -> Result<Vec<u8>, String> {
-    use std::process::Command;
-    let out = Command::new("security")
-        .args(["find-generic-password", "-s", service, "-a", "whatszara", "-w"])
-        .output()
-        .map_err(|e| format!("Keychain read error: {}", e))?;
-    if !out.status.success() {
-        return Err("No keychain entry".into());
-    }
-    let b64 = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    let entry = keyring::Entry::new(service, "whatszara")
+        .map_err(|e| format!("Keyring entry error: {}", e))?;
+    let b64 = entry.get_password()
+        .map_err(|e| format!("Keyring read error: {}", e))?;
     base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &b64)
         .map_err(|e| format!("Base64 decode: {}", e))
 }
 
 fn delete_keychain(service: &str) -> Result<(), String> {
-    use std::process::Command;
-    Command::new("security")
-        .args(["delete-generic-password", "-s", service, "-a", "whatszara"])
-        .output()
-        .map_err(|e| format!("Keychain delete error: {}", e))?;
-    Ok(())
+    let entry = keyring::Entry::new(service, "whatszara")
+        .map_err(|e| format!("Keyring entry error: {}", e))?;
+    entry.delete_credential()
+        .map_err(|e| format!("Keyring delete error: {}", e))
 }
 
 fn auto_save_config(orch: &WhatszaraOrchestrator) {
