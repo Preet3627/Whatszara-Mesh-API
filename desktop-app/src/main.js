@@ -351,27 +351,38 @@ document.getElementById("chat-refresh")?.addEventListener("click", async () => {
   if (selectedChatJid) await loadMessages(selectedChatJid);
 });
 
+let lastMessageCount = 0;
+
 async function loadMessages(jid) {
   const container = document.getElementById("chat-messages");
   const actionsList = document.getElementById("chat-actions-list");
-  container.innerHTML = '<p class="text-muted">Loading messages...</p>';
+  const wasAtBottom = container.scrollTop + container.clientHeight >= container.scrollHeight - 50;
   try {
     const raw = await invoke("list_messages", { jid, limit: 50 });
     const msgs = JSON.parse(raw);
-    container.innerHTML = msgs.length
-      ? msgs
-          .map(
-            (m) => `
+    if (!Array.isArray(msgs)) throw new Error("Invalid response");
+    const hasNewMessages = msgs.length !== lastMessageCount;
+    if (hasNewMessages || container.innerHTML === '<p class="text-muted">Loading messages...</p>') {
+      container.innerHTML = msgs.length
+        ? msgs
+            .map(
+              (m) => `
         <div class="message-bubble ${m.sender === m.chat_jid ? "incoming" : "outgoing"}">
           <div>${escHtml(m.content || "(media)")}</div>
           <div class="message-meta">${m.timestamp || ""}${m.media_type ? " · " + escHtml(m.media_type) : ""}</div>
         </div>`
-          )
-          .join("")
-      : '<p class="text-muted">No messages yet</p>';
-    container.scrollTop = container.scrollHeight;
+            )
+            .join("")
+        : '<p class="text-muted">No messages yet</p>';
+      lastMessageCount = msgs.length;
+    }
+    if (wasAtBottom || hasNewMessages) {
+      container.scrollTop = container.scrollHeight;
+    }
   } catch (e) {
-    container.innerHTML = '<p class="text-muted">Failed to load messages</p>';
+    if (container.innerHTML === '<p class="text-muted">Loading messages...</p>') {
+      container.innerHTML = '<p class="text-muted">Failed to load messages</p>';
+    }
   }
   actionsList.innerHTML = '<p class="text-muted">No pending actions</p>';
 }
@@ -381,7 +392,7 @@ function startChatPolling() {
   chatPollInterval = setInterval(async () => {
     await refreshChatContacts();
     if (selectedChatJid) await loadMessages(selectedChatJid);
-  }, 5000);
+  }, 3000);
 }
 
 function stopChatPolling() {

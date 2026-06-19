@@ -97,7 +97,7 @@ pub fn list_chats(limit: usize) -> Result<Vec<Chat>, String> {
 pub fn list_messages(chat_jid: &str, limit: usize) -> Result<Vec<Message>, String> {
     let conn = connect()?;
     let mut stmt = conn
-        .prepare("SELECT id, chat_jid, sender, content, timestamp, media_type FROM messages WHERE chat_jid = ?1 ORDER BY timestamp DESC LIMIT ?2")
+        .prepare("SELECT id, chat_jid, sender, content, timestamp, media_type FROM messages WHERE chat_jid = ?1 ORDER BY timestamp ASC LIMIT ?2")
         .map_err(|e| e.to_string())?;
     let rows = stmt
         .query_map(rusqlite::params![chat_jid, limit as i64], |row| {
