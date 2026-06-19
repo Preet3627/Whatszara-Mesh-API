@@ -30,8 +30,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          brew install go python@3.11 ffmpeg
-          pip3 install uv
+          brew install go ffmpeg
 
       - name: Build Go bridge
         run: |
