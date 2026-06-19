@@ -24,6 +24,9 @@ jobs:
         with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
 
+      - name: Install x86_64 target
+        run: rustup target add x86_64-apple-darwin
+
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
