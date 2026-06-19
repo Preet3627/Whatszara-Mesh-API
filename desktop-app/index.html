@@ -1,54 +1,92 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark light" />
     <title>Whatszara</title>
     <link rel="stylesheet" href="/src/styles.css" />
   </head>
   <body>
+    <div class="ambient-backdrop" aria-hidden="true"></div>
     <div id="app">
       <aside class="sidebar">
         <div class="sidebar-header">
-          <h1>Whatszara</h1>
-          <span class="status-badge" id="status-badge">disconnected</span>
+          <div class="brand-mark">W</div>
+          <div>
+            <h1>Whatszara</h1>
+            <span class="status-badge" id="status-badge">disconnected</span>
+          </div>
         </div>
-        <nav class="sidebar-nav">
-          <button class="nav-item active" data-view="dashboard">Dashboard</button>
-          <button class="nav-item" data-view="chat">Chat</button>
-          <button class="nav-item" data-view="providers">Providers</button>
-          <button class="nav-item" data-view="permissions">Permissions</button>
-          <button class="nav-item" data-view="actions">Action Log</button>
-          <button class="nav-item" data-view="settings">Settings</button>
+        <nav class="sidebar-nav" aria-label="Main navigation">
+          <button class="nav-item active" data-view="dashboard" type="button">
+            <span class="nav-icon">⌂</span><span>Dashboard</span><kbd>⌘1</kbd>
+          </button>
+          <button class="nav-item" data-view="chat" type="button">
+            <span class="nav-icon">✉</span><span>Chat</span><kbd>⌘2</kbd>
+          </button>
+          <button class="nav-item" data-view="providers" type="button">
+            <span class="nav-icon">◈</span><span>Providers</span><kbd>⌘3</kbd>
+          </button>
+          <button class="nav-item" data-view="permissions" type="button">
+            <span class="nav-icon">◌</span><span>Permissions</span><kbd>⌘4</kbd>
+          </button>
+          <button class="nav-item" data-view="actions" type="button">
+            <span class="nav-icon">≡</span><span>Action Log</span><kbd>⌘5</kbd>
+          </button>
+          <button class="nav-item" data-view="settings" type="button">
+            <span class="nav-icon">⚙</span><span>Settings</span><kbd>⌘6</kbd>
+          </button>
+          <button class="nav-item" data-view="guide" type="button">
+            <span class="nav-icon">?</span><span>Guide</span><kbd>⌘7</kbd>
+          </button>
         </nav>
+        <div class="theme-switcher" aria-label="Theme selector">
+          <button class="theme-btn active" data-theme-choice="dark" type="button">Dark</button>
+          <button class="theme-btn" data-theme-choice="light" type="button">Light</button>
+          <button class="theme-btn" data-theme-choice="vibrant" type="button">Vibrant</button>
+        </div>
         <div class="sidebar-footer">
           <span class="version">v0.1.0</span>
+          <span class="shortcut-hint">Press ? for help</span>
         </div>
       </aside>
 
       <main class="main-content" id="main-content">
         <div class="view" id="view-dashboard">
-          <h2>Dashboard</h2>
+          <header class="view-header">
+            <div>
+              <p class="eyebrow">Control center</p>
+              <h2>Dashboard</h2>
+            </div>
+            <button class="btn btn-ghost" data-view="guide" type="button">Setup Guide</button>
+          </header>
           <div class="stats-grid">
-            <div class="stat-card">
+            <div class="stat-card accent-green">
               <span class="stat-label">WhatsApp</span>
               <span class="stat-value" id="wa-status">Checking...</span>
             </div>
-            <div class="stat-card">
+            <div class="stat-card accent-blue">
               <span class="stat-label">LLM Provider</span>
               <span class="stat-value" id="llm-status">Checking...</span>
             </div>
-            <div class="stat-card">
+            <div class="stat-card accent-amber">
               <span class="stat-label">Actions Today</span>
               <span class="stat-value" id="actions-count">0</span>
             </div>
-            <div class="stat-card">
+            <div class="stat-card accent-rose">
               <span class="stat-label">Active Risk Level</span>
               <span class="stat-value" id="risk-level">Low</span>
             </div>
           </div>
-          <div class="section">
-            <h3>Setup Wizard</h3>
+          <div class="section setup-panel">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">First run</p>
+                <h3>Setup Wizard</h3>
+              </div>
+              <span class="pill">Live status</span>
+            </div>
             <div id="setup-wizard">
               <div class="setup-step" id="step-bridge">
                 <div class="step-indicator" id="bridge-indicator">
@@ -59,13 +97,13 @@
                   <h4>WhatsApp Bridge</h4>
                   <p id="bridge-status-text">Starting bridge...</p>
                   <div id="qr-container" class="qr-container hidden">
-                    <p class="qr-instruction">Scan this QR code with WhatsApp on your phone:</p>
+                    <p class="qr-instruction">Scan this QR code with WhatsApp on your phone.</p>
                     <canvas id="qr-canvas"></canvas>
-                    <p class="qr-hint">Open WhatsApp → Linked Devices → Link a Device</p>
+                    <p class="qr-hint">WhatsApp > Linked Devices > Link a Device</p>
                   </div>
                   <pre id="bridge-error-detail" class="code-block hidden"></pre>
-                  <div id="bridge-logout" class="hidden" style="margin-top:12px;">
-                    <button class="btn btn-danger btn-small" id="logout-bridge">Logout & Disconnect</button>
+                  <div id="bridge-logout" class="hidden action-row">
+                    <button class="btn btn-danger btn-small" id="logout-bridge" type="button">Logout & Disconnect</button>
                   </div>
                 </div>
               </div>
@@ -75,8 +113,8 @@
                 </div>
                 <div class="step-body">
                   <h4>LLM Provider</h4>
-                  <p id="provider-status-text">Configure an AI provider to handle your requests.</p>
-                  <button class="btn btn-small" data-view="providers">Go to Providers</button>
+                  <p id="provider-status-text">Choose a provider and model before enabling automation.</p>
+                  <button class="btn btn-small" data-view="providers" type="button">Open Providers</button>
                 </div>
               </div>
               <div class="setup-step" id="step-allowlist">
@@ -85,8 +123,8 @@
                 </div>
                 <div class="step-body">
                   <h4>Allowlist Your JID</h4>
-                  <p id="allowlist-status-text">Add your WhatsApp number to the allowlist so the assistant can respond.</p>
-                  <button class="btn btn-small" data-view="permissions">Go to Permissions</button>
+                  <p id="allowlist-status-text">Approve the WhatsApp accounts that can control this desktop.</p>
+                  <button class="btn btn-small" data-view="permissions" type="button">Open Permissions</button>
                 </div>
               </div>
             </div>
@@ -94,58 +132,50 @@
         </div>
 
         <div class="view hidden" id="view-providers">
-          <h2>LLM Providers</h2>
-          <div class="toggle-group">
-            <label class="toggle">
-              <input type="checkbox" id="provider-ollama" checked />
-              <span class="toggle-label">Ollama (Local)</span>
-            </label>
-            <label class="toggle">
-              <input type="checkbox" id="provider-claude" />
-              <span class="toggle-label">Claude (Anthropic)</span>
-            </label>
-            <label class="toggle">
-              <input type="checkbox" id="provider-groq" />
-              <span class="toggle-label">Groq</span>
-            </label>
-            <label class="toggle">
-              <input type="checkbox" id="provider-grok" />
-              <span class="toggle-label">Grok (xAI)</span>
-            </label>
-            <label class="toggle">
-              <input type="checkbox" id="provider-gemini" />
-              <span class="toggle-label">Gemini (Google)</span>
-            </label>
-          </div>
+          <header class="view-header">
+            <div>
+              <p class="eyebrow">Model routing</p>
+              <h2>LLM Providers</h2>
+            </div>
+            <button class="btn btn-ghost btn-small" id="refresh-models" type="button">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+              Refresh
+            </button>
+          </header>
           <div class="section">
-            <h3>Active Provider</h3>
-            <select id="active-provider-select">
-              <option value="ollama">Ollama</option>
-              <option value="claude">Claude</option>
-              <option value="groq">Groq</option>
-              <option value="grok">Grok</option>
-              <option value="gemini">Gemini</option>
-            </select>
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
-              <h3 style="margin-bottom:0;">Available Models</h3>
-              <button class="btn btn-small" id="refresh-models">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-                Refresh
-              </button>
+            <div class="form-grid">
+              <label>Active Provider
+                <select id="active-provider-select">
+                  <option value="ollama">Ollama</option>
+                  <option value="claude">Claude</option>
+                  <option value="groq">Groq</option>
+                  <option value="grok">Grok</option>
+                  <option value="gemini">Gemini</option>
+                </select>
+              </label>
+            </div>
+            <div class="section-heading compact">
+              <h3>Available Models</h3>
+              <span class="pill">Auto-detected</span>
             </div>
             <div id="models-container"></div>
           </div>
         </div>
 
         <div class="view hidden" id="view-permissions">
-          <h2>Permission Settings</h2>
+          <header class="view-header">
+            <div>
+              <p class="eyebrow">Safety controls</p>
+              <h2>Permission Settings</h2>
+            </div>
+          </header>
           <div class="section">
-            <h3>Risk Profiles</h3>
+            <div class="section-heading compact"><h3>Risk Profiles</h3></div>
             <div class="risk-cards">
               <div class="risk-card risk-low">
                 <h4>Low Risk</h4>
                 <p>Read volume, list files, get time</p>
-                <small>Auto-approved, logged only</small>
+                <small>Auto-approved and logged</small>
               </div>
               <div class="risk-card risk-medium">
                 <h4>Medium Risk</h4>
@@ -155,12 +185,12 @@
               <div class="risk-card risk-high">
                 <h4>High Risk</h4>
                 <p>Shell commands, delete, install</p>
-                <small>reCAPTCHA + CAPTCHA + confirm</small>
+                <small>Requires reCAPTCHA, CAPTCHA, and confirm</small>
               </div>
             </div>
           </div>
           <div class="section">
-            <h3>Tool Permissions</h3>
+            <div class="section-heading compact"><h3>Tool Permissions</h3></div>
             <div class="toggle-group">
               <label class="toggle">
                 <input type="checkbox" id="perm-shell" checked data-perm="shell" />
@@ -185,9 +215,12 @@
             </div>
           </div>
           <div class="section">
-            <h3>Contacts</h3>
+            <div class="section-heading">
+              <h3>Contacts</h3>
+              <p id="contacts-status" class="text-muted">Loading contacts...</p>
+            </div>
             <input type="text" id="contacts-search" placeholder="Search contacts..." class="search-input" />
-            <div style="overflow-x: auto;">
+            <div class="table-shell">
               <table class="contacts-table" id="contacts-table">
                 <thead>
                   <tr>
@@ -200,15 +233,18 @@
                 <tbody id="contacts-table-body"></tbody>
               </table>
             </div>
-            <p id="contacts-status" class="text-muted" style="margin-top: 8px;">Loading contacts...</p>
           </div>
         </div>
 
-        <div class="view hidden" id="view-chat">
+        <div class="view hidden chat-view" id="view-chat">
           <div class="chat-layout">
             <div class="chat-contacts-panel">
               <div class="chat-contacts-header">
-                <h3>Contacts</h3>
+                <div>
+                  <p class="eyebrow">Inbox</p>
+                  <h3>Contacts</h3>
+                </div>
+                <kbd>⌘K</kbd>
               </div>
               <input type="text" id="chat-search" placeholder="Search contacts..." class="search-input" />
               <div id="chat-contact-list" class="chat-contact-list"></div>
@@ -223,16 +259,17 @@
                     </svg>
                   </div>
                   <h3>Select a Conversation</h3>
-                  <p>Choose a contact from the left panel to view your message history and pending actions.</p>
+                  <p>Choose a contact to view message history and pending approvals.</p>
                 </div>
               </div>
-              <div id="chat-conversation" class="hidden">
+              <div id="chat-conversation" class="chat-conversation hidden">
                 <div class="chat-header">
                   <div class="chat-header-info">
+                    <p class="eyebrow">Conversation</p>
                     <h3 id="chat-contact-name">Contact Name</h3>
                     <span id="chat-contact-jid" class="text-muted"></span>
                   </div>
-                  <button class="btn btn-small" id="chat-refresh" title="Refresh contacts & messages">
+                  <button class="btn btn-ghost btn-small" id="chat-refresh" title="Refresh contacts and messages" type="button">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
                     Refresh
                   </button>
@@ -240,10 +277,10 @@
                 <div id="chat-messages" class="chat-messages"></div>
                 <div id="chat-reply-area" class="chat-reply-area hidden">
                   <textarea id="chat-reply-input" class="chat-reply-input" placeholder="Type an AI reply..." rows="2"></textarea>
-                  <button class="btn btn-primary btn-small" id="chat-reply-send">Send</button>
+                  <button class="btn btn-primary btn-small" id="chat-reply-send" type="button">Send</button>
                 </div>
                 <div id="chat-actions" class="chat-actions-section">
-                  <h4>Pending Actions</h4>
+                  <h4>Pending Actions <span id="pending-actions-count" class="badge-count" style="display:none;">0</span></h4>
                   <div id="chat-actions-list" class="chat-actions-list">
                     <p class="text-muted">No pending actions</p>
                   </div>
@@ -254,38 +291,132 @@
         </div>
 
         <div class="view hidden" id="view-actions">
-          <h2>Action Log</h2>
+          <header class="view-header">
+            <div>
+              <p class="eyebrow">Audit trail</p>
+              <h2>Action Log</h2>
+            </div>
+            <button class="btn btn-ghost" id="refresh-log" type="button">Refresh</button>
+          </header>
           <div class="section">
-            <button class="btn" id="refresh-log">Refresh</button>
-            <table class="action-table" id="action-table">
-              <thead>
-                <tr>
-                  <th>Time</th>
-                  <th>Action</th>
-                  <th>Status</th>
-                  <th>Reversible</th>
-                </tr>
-              </thead>
-              <tbody id="action-log-body">
-                <tr><td colspan="4">No actions yet</td></tr>
-              </tbody>
-            </table>
+            <div class="table-shell">
+              <table class="action-table" id="action-table">
+                <thead>
+                  <tr>
+                    <th>Time</th>
+                    <th>Action</th>
+                    <th>Status</th>
+                    <th>Reversible</th>
+                  </tr>
+                </thead>
+                <tbody id="action-log-body">
+                  <tr><td colspan="4">No actions yet</td></tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
 
         <div class="view hidden" id="view-settings">
-          <h2>Settings</h2>
-          <div class="section">
-            <h3>WhatsApp Bridge</h3>
-            <label>Bridge URL <input type="text" id="bridge-url" value="http://localhost:8080" /></label>
-            <label>API Key <input type="password" id="api-key" placeholder="Optional" /></label>
+          <header class="view-header">
+            <div>
+              <p class="eyebrow">Configuration</p>
+              <h2>Settings</h2>
+            </div>
+          </header>
+          <div class="settings-grid">
+            <div class="section">
+              <h3>WhatsApp Bridge</h3>
+              <label>Bridge URL <input type="text" id="bridge-url" value="http://localhost:8080" /></label>
+            </div>
+            <div class="section">
+              <h3>Orchestrator</h3>
+              <label>Ollama Endpoint <input type="text" id="ollama-endpoint" value="http://localhost:11434" /></label>
+              <button class="btn btn-small" id="apply-ollama-endpoint" type="button">Apply Endpoint</button>
+            </div>
+            <div class="section">
+              <h3>Provider API Keys</h3>
+              <label>Anthropic (Claude) <input type="password" id="api-key-claude" placeholder="sk-ant-..." /></label>
+              <label>Groq <input type="password" id="api-key-groq" placeholder="gsk_..." /></label>
+              <label>xAI (Grok) <input type="password" id="api-key-xai" placeholder="xai-..." /></label>
+              <label>Gemini <input type="password" id="api-key-gemini" placeholder="AIza..." /></label>
+              <button class="btn btn-small" id="apply-api-keys" type="button">Apply API Keys</button>
+            </div>
+            <div class="section">
+              <h3>Persistent Config</h3>
+              <p class="text-muted">Saved settings include allowlist, contact modes, and tool permissions.</p>
+              <div class="button-row">
+                <button class="btn btn-primary btn-small" id="save-config-to-keychain" type="button">Save to Keychain</button>
+                <button class="btn btn-small" id="load-config-from-keychain" type="button">Load from Keychain</button>
+                <button class="btn btn-danger btn-small" id="clear-config-from-keychain" type="button">Clear Config</button>
+              </div>
+            </div>
+            <div class="section">
+              <h3>Local Settings</h3>
+              <button class="btn btn-primary" id="save-settings" type="button">Save Settings</button>
+            </div>
           </div>
-          <div class="section">
-            <h3>Orchestrator</h3>
-            <label>Ollama Endpoint <input type="text" id="ollama-endpoint" value="http://localhost:11434" /></label>
-          </div>
-          <div class="section">
-            <button class="btn btn-primary" id="save-settings">Save Settings</button>
+        </div>
+
+        <div class="view hidden" id="view-guide">
+          <header class="view-header">
+            <div>
+              <p class="eyebrow">Help center</p>
+              <h2>Setup Guide</h2>
+            </div>
+            <button class="btn btn-ghost" data-view="dashboard" type="button">Back to Dashboard</button>
+          </header>
+          <div class="guide-grid">
+            <section class="section guide-card">
+              <h3>Fast Setup</h3>
+              <ol class="setup-list">
+                <li>Run <code>chmod +x setup.sh && ./setup.sh</code>.</li>
+                <li>Launch with <code>make desktop</code>.</li>
+                <li>Scan the QR code from the dashboard or terminal.</li>
+                <li>Select an LLM provider and model.</li>
+                <li>Allowlist trusted WhatsApp JIDs.</li>
+              </ol>
+            </section>
+            <section class="section guide-card">
+              <h3>Keyboard Shortcuts</h3>
+              <div class="shortcut-list">
+                <div><kbd>⌘1-7</kbd><span>Switch views</span></div>
+                <div><kbd>⌘K</kbd><span>Focus search or reply</span></div>
+                <div><kbd>⌘J</kbd><span>Open chat</span></div>
+                <div><kbd>⌘G</kbd><span>Open guide</span></div>
+                <div><kbd>?</kbd><span>Open guide</span></div>
+                <div><kbd>Esc</kbd><span>Clear focused input</span></div>
+              </div>
+            </section>
+            <section class="section guide-card">
+              <h3>Troubleshooting</h3>
+              <div class="help-list">
+                <details open>
+                  <summary>Bridge stopped or unavailable</summary>
+                  <p>Confirm Go is installed with <code>go version</code>, then restart the app.</p>
+                </details>
+                <details>
+                  <summary>QR code does not appear</summary>
+                  <p>Remove <code>whatsapp-bridge/store/</code>, restart, and link the device again.</p>
+                </details>
+                <details>
+                  <summary>Models are missing</summary>
+                  <p>For Ollama, start <code>ollama serve</code> and pull a model such as <code>ollama pull llama3.1</code>.</p>
+                </details>
+                <details>
+                  <summary>Messages do not execute actions</summary>
+                  <p>Check the contact mode, allowlist entry, and tool permission toggles.</p>
+                </details>
+              </div>
+            </section>
+            <section class="section guide-card">
+              <h3>Provider Environment</h3>
+              <pre class="code-block">OLLAMA_ENDPOINT=http://localhost:11434
+ANTHROPIC_API_KEY=sk-ant-...
+GROQ_API_KEY=gsk-...
+XAI_API_KEY=xai-...
+GEMINI_API_KEY=AIza...</pre>
+            </section>
           </div>
         </div>
       </main>

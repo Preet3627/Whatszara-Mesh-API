@@ -1,22 +1,113 @@
 // Whatszara Desktop App - Main
 import QRCode from "qrcode";
 
-// ── Navigation ──
-document.querySelectorAll(".nav-item").forEach((btn) => {
-  btn.addEventListener("click", () => {
-    document.querySelectorAll(".nav-item").forEach((b) => b.classList.remove("active"));
-    btn.classList.add("active");
-    const view = btn.dataset.view;
-    document.querySelectorAll(".view").forEach((v) => v.classList.add("hidden"));
-    const target = document.getElementById(`view-${view}`);
-    if (target) target.classList.remove("hidden");
-    if (view === "dashboard") { stopChatPolling(); refreshDashboard(); }
-    if (view === "permissions") { stopChatPolling(); refreshContactsTable(); }
-    if (view === "chat") { refreshChatContacts(); startChatPolling(); }
-    if (view === "actions") { stopChatPolling(); refreshActionLog(); }
-    if (view === "providers") { stopChatPolling(); refreshModels(); }
-    if (view === "settings") { stopChatPolling(); }
+// ── Navigation, Themes, Shortcuts ──
+const views = ["dashboard", "chat", "providers", "permissions", "actions", "settings", "guide"];
+const viewActions = {
+  dashboard: () => { stopChatPolling(); refreshDashboard(); },
+  permissions: () => { stopChatPolling(); refreshContactsTable(); },
+  chat: () => { refreshChatContacts(); startChatPolling(); },
+  actions: () => { stopChatPolling(); refreshActionLog(); },
+  providers: () => { stopChatPolling(); refreshModels(); },
+  settings: () => { stopChatPolling(); loadSettingsUI(); },
+  guide: () => { stopChatPolling(); },
+};
+
+function showView(view) {
+  if (!views.includes(view)) return;
+  document.querySelectorAll(".nav-item").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.view === view);
   });
+  document.querySelectorAll(".view").forEach((viewEl) => viewEl.classList.add("hidden"));
+  document.getElementById(`view-${view}`)?.classList.remove("hidden");
+  viewActions[view]?.();
+}
+
+document.querySelectorAll(".nav-item").forEach((btn) => {
+  btn.addEventListener("click", () => showView(btn.dataset.view));
+});
+
+document.addEventListener("click", (event) => {
+  const btn = event.target.closest("button[data-view]");
+  if (!btn || btn.classList.contains("nav-item")) return;
+  showView(btn.dataset.view);
+});
+
+function applyTheme(theme) {
+  const nextTheme = ["dark", "light", "vibrant"].includes(theme) ? theme : "dark";
+  document.documentElement.dataset.theme = nextTheme;
+  localStorage.setItem("whatszara-theme", nextTheme);
+  document.querySelectorAll(".theme-btn").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.themeChoice === nextTheme);
+  });
+}
+
+document.querySelectorAll(".theme-btn").forEach((btn) => {
+  btn.addEventListener("click", () => applyTheme(btn.dataset.themeChoice));
+});
+
+function isTypingTarget(target) {
+  return ["INPUT", "TEXTAREA", "SELECT"].includes(target?.tagName) || target?.isContentEditable;
+}
+
+function getCurrentView() {
+  return document.querySelector(".view:not(.hidden)")?.id?.replace("view-", "") || "dashboard";
+}
+
+function focusSearchOrReply() {
+  const currentView = getCurrentView();
+  const candidates = [
+    currentView === "chat" && selectedChatJid ? "#chat-reply-input" : null,
+    currentView === "chat" ? "#chat-search" : null,
+    currentView === "permissions" ? "#contacts-search" : null,
+    ".view:not(.hidden) input[type='text']",
+    ".view:not(.hidden) textarea",
+  ].filter(Boolean);
+  const target = candidates.map((selector) => document.querySelector(selector)).find((el) => el && !el.closest(".hidden"));
+  if (target) {
+    target.focus();
+    target.select?.();
+  }
+}
+
+document.addEventListener("keydown", (event) => {
+  const withCommand = event.metaKey || event.ctrlKey;
+  const key = event.key.toLowerCase();
+
+  if (withCommand && /^[1-7]$/.test(key)) {
+    event.preventDefault();
+    showView(views[Number(key) - 1]);
+    return;
+  }
+
+  if (withCommand && key === "k") {
+    event.preventDefault();
+    focusSearchOrReply();
+    return;
+  }
+
+  if (withCommand && key === "j") {
+    event.preventDefault();
+    showView("chat");
+    return;
+  }
+
+  if (withCommand && key === "g") {
+    event.preventDefault();
+    showView("guide");
+    return;
+  }
+
+  if (event.key === "?" && !isTypingTarget(event.target)) {
+    event.preventDefault();
+    showView("guide");
+    return;
+  }
+
+  if (event.key === "Escape" && isTypingTarget(event.target)) {
+    event.target.value = "";
+    event.target.blur();
+  }
 });
 
 // ── Tauri invoke helper ──
@@ -59,22 +150,19 @@ function updateBridgeUI(status) {
   const stepProvider = document.getElementById("step-provider");
   const stepAllowlist = document.getElementById("step-allowlist");
 
-  // Update sidebar badge
   if (badge) {
-    const labels = { stopped: "stopped", running: "starting…", awaiting_scan: "scan QR", connected: "connected", error: "error" };
+    const labels = { stopped: "stopped", running: "starting\u2026", awaiting_scan: "scan QR", connected: "connected", error: "error" };
     badge.textContent = labels[status.status] || status.status;
     badge.classList.toggle("connected", status.status === "connected");
     badge.classList.toggle("error", status.status === "error");
   }
 
-  // Update WhatsApp status stat
   if (waStatus) {
-    const labels = { stopped: "Bridge Stopped", running: "Connecting…", awaiting_scan: "Scan QR Code", connected: "Connected", error: "Bridge Error" };
+    const labels = { stopped: "Bridge Stopped", running: "Connecting\u2026", awaiting_scan: "Scan QR Code", connected: "Connected", error: "Bridge Error" };
     waStatus.textContent = labels[status.status] || "Unknown";
     waStatus.style.color = status.status === "connected" ? "var(--green)" : status.status === "error" ? "var(--red)" : "var(--yellow)";
   }
 
-  // Update step indicator
   if (indicator) {
     indicator.className = "step-indicator";
     indicator.classList.add(`step-${status.status}`);
@@ -84,29 +172,23 @@ function updateBridgeUI(status) {
     const showIcon = status.status !== "running" && status.status !== "starting" && status.status !== "awaiting_scan";
     icon.classList.toggle("hidden", !showIcon);
     if (showIcon) {
-      const icons = { stopped: "✕", connected: "✓", error: "✕" };
+      const icons = { stopped: "\u2715", connected: "\u2713", error: "\u2715" };
       icon.textContent = icons[status.status] || "?";
     }
   }
 
-  // QR code display
   if (status.status === "awaiting_scan" && status.qr && status.qr !== lastQrCode) {
     lastQrCode = status.qr;
     if (qrContainer) qrContainer.classList.remove("hidden");
     if (qrCanvas) {
-      QRCode.toCanvas(qrCanvas, status.qr, {
-        width: 280,
-        margin: 2,
-        color: { dark: "#000000", light: "#ffffff" },
-      });
+      QRCode.toCanvas(qrCanvas, status.qr, { width: 280, margin: 2, color: { dark: "#000", light: "#fff" } });
     }
   }
 
-  // Status text
   if (statusText) {
     const texts = {
       stopped: "Bridge is not running. Try restarting the app.",
-      running: "Bridge process is running, waiting for QR code from WhatsApp…",
+      running: "Bridge process is running, waiting for QR code from WhatsApp\u2026",
       awaiting_scan: "Scan the QR code below with WhatsApp on your phone.",
       connected: "Bridge is connected to WhatsApp!",
       error: `Bridge failed: ${status.error || "Unknown error"}`,
@@ -114,7 +196,6 @@ function updateBridgeUI(status) {
     statusText.textContent = texts[status.status] || "Unknown status";
   }
 
-  // Error detail
   if (errorDetail) {
     if (status.status === "error" && status.error) {
       errorDetail.textContent = status.error;
@@ -124,11 +205,9 @@ function updateBridgeUI(status) {
     }
   }
 
-  // Step progression
   if (stepBridge) stepBridge.classList.toggle("completed", status.status === "connected");
   if (stepProvider) stepProvider.classList.toggle("active", status.status === "connected");
 
-  // Logout button visibility
   const logoutDiv = document.getElementById("bridge-logout");
   if (logoutDiv) logoutDiv.classList.toggle("hidden", status.status !== "connected");
 }
@@ -140,9 +219,7 @@ async function refreshDashboard() {
     const status = JSON.parse(raw);
     document.getElementById("llm-status").textContent = status.active_provider || "none";
     document.getElementById("actions-count").textContent = status.journal_entries || 0;
-  } catch {
-    // ignore
-  }
+  } catch {}
   pollBridge();
 }
 
@@ -285,6 +362,7 @@ let chatContacts = [];
 let chatAllowlist = [];
 let selectedChatJid = null;
 let chatPollInterval = null;
+let pendingActionsPollInterval = null;
 
 async function refreshChatContacts() {
   try {
@@ -348,11 +426,13 @@ document.getElementById("chat-contact-list")?.addEventListener("click", async (e
   if (replyArea) replyArea.classList.toggle("hidden", !isAllowlisted);
   lastMessageCount = 0;
   await loadMessages(selectedChatJid);
+  await refreshPendingActions();
 });
 
 document.getElementById("chat-refresh")?.addEventListener("click", async () => {
   await refreshChatContacts();
   if (selectedChatJid) await loadMessages(selectedChatJid);
+  await refreshPendingActions();
 });
 
 async function sendAIReply() {
@@ -368,6 +448,9 @@ async function sendAIReply() {
     const result = JSON.parse(raw);
     if (result.reply) {
       await loadMessages(selectedChatJid);
+    }
+    if (result.has_pending_actions) {
+      await refreshPendingActions();
     }
   } catch (e) {
     console.error("Reply failed", e);
@@ -389,7 +472,6 @@ let lastMessageCount = 0;
 
 async function loadMessages(jid) {
   const container = document.getElementById("chat-messages");
-  const actionsList = document.getElementById("chat-actions-list");
   const wasAtBottom = container.scrollTop + container.clientHeight >= container.scrollHeight - 50;
   try {
     const raw = await invoke("list_messages", { jid, limit: 50 });
@@ -403,7 +485,7 @@ async function loadMessages(jid) {
               (m) => `
         <div class="message-bubble ${m.sender === m.chat_jid ? "incoming" : "outgoing"}">
           <div>${escHtml(m.content || "(media)")}</div>
-          <div class="message-meta">${m.timestamp || ""}${m.media_type ? " · " + escHtml(m.media_type) : ""}</div>
+          <div class="message-meta">${m.timestamp || ""}${m.media_type ? " \u00b7 " + escHtml(m.media_type) : ""}</div>
         </div>`
             )
             .join("")
@@ -418,7 +500,6 @@ async function loadMessages(jid) {
       container.innerHTML = '<p class="text-muted">Failed to load messages</p>';
     }
   }
-  actionsList.innerHTML = '<p class="text-muted">No pending actions</p>';
 }
 
 function startChatPolling() {
@@ -427,6 +508,9 @@ function startChatPolling() {
     await refreshChatContacts();
     if (selectedChatJid) await loadMessages(selectedChatJid);
   }, 3000);
+  if (!pendingActionsPollInterval) {
+    pendingActionsPollInterval = setInterval(refreshPendingActions, 3000);
+  }
 }
 
 function stopChatPolling() {
@@ -434,7 +518,72 @@ function stopChatPolling() {
     clearInterval(chatPollInterval);
     chatPollInterval = null;
   }
+  if (pendingActionsPollInterval) {
+    clearInterval(pendingActionsPollInterval);
+    pendingActionsPollInterval = null;
+  }
 }
+
+// ── Pending Actions (Risk/Approval) ──
+async function refreshPendingActions() {
+  try {
+    const raw = await invoke("get_pending_actions");
+    const actions = JSON.parse(raw);
+    renderPendingActions(actions);
+  } catch {}
+}
+
+function renderPendingActions(actions) {
+  const list = document.getElementById("chat-actions-list");
+  const countBadge = document.getElementById("pending-actions-count");
+  if (!list) return;
+
+  const contactActions = actions.filter((a) => a.contact_jid === selectedChatJid);
+
+  if (countBadge) {
+    if (contactActions.length > 0) {
+      countBadge.textContent = contactActions.length;
+      countBadge.style.display = "inline";
+    } else {
+      countBadge.style.display = "none";
+    }
+  }
+
+  if (!contactActions.length) {
+    list.innerHTML = '<p class="text-muted">No pending actions</p>';
+    return;
+  }
+
+  list.innerHTML = contactActions
+    .map(
+      (a) => `
+    <div class="action-card" data-action-id="${escHtml(a.id)}">
+      <div class="action-info">
+        <div class="action-name">${escHtml(a.action)}</div>
+        <div class="action-detail">${escHtml(JSON.stringify(a.params))} \u00b7 Risk: ${escHtml(a.risk_level)}</div>
+      </div>
+      <div class="action-buttons">
+        <button class="btn btn-small btn-success approve-btn">Approve</button>
+        <button class="btn btn-small btn-danger reject-btn">Reject</button>
+      </div>
+    </div>`
+    )
+    .join("");
+}
+
+document.getElementById("chat-actions-list")?.addEventListener("click", async (e) => {
+  const card = e.target.closest(".action-card");
+  if (!card) return;
+  const id = card.dataset.actionId;
+  if (e.target.classList.contains("approve-btn")) {
+    await invoke("approve_action", { id });
+    await loadMessages(selectedChatJid);
+    await refreshPendingActions();
+  } else if (e.target.classList.contains("reject-btn")) {
+    await invoke("reject_action", { id });
+    await refreshPendingActions();
+  }
+});
 
 // ── Action Log ──
 async function refreshActionLog() {
@@ -446,32 +595,89 @@ async function refreshActionLog() {
       tbody.innerHTML =
         `<tr><td>-</td><td>Journal: ${status.journal_entries || 0} entries</td><td>-</td><td>${status.reversible_actions || 0} reversible</td></tr>`;
     }
-  } catch {
-    // ignore
-  }
+  } catch {}
 }
 
 document.getElementById("refresh-log")?.addEventListener("click", refreshActionLog);
 
 // ── Settings ──
+function loadSettingsUI() {
+  const saved = localStorage.getItem("whatszara-settings");
+  if (saved) {
+    const s = JSON.parse(saved);
+    if (document.getElementById("bridge-url"))
+      document.getElementById("bridge-url").value = s.bridgeUrl || "http://localhost:8080";
+    if (document.getElementById("ollama-endpoint"))
+      document.getElementById("ollama-endpoint").value = s.ollamaEndpoint || "http://localhost:11434";
+    if (document.getElementById("active-provider-select"))
+      document.getElementById("active-provider-select").value = s.activeProvider || "ollama";
+    if (document.getElementById("api-key-claude"))
+      document.getElementById("api-key-claude").value = s.claudeKey || "";
+    if (document.getElementById("api-key-groq"))
+      document.getElementById("api-key-groq").value = s.groqKey || "";
+    if (document.getElementById("api-key-xai"))
+      document.getElementById("api-key-xai").value = s.xaiKey || "";
+    if (document.getElementById("api-key-gemini"))
+      document.getElementById("api-key-gemini").value = s.geminiKey || "";
+  }
+}
+
 document.getElementById("save-settings")?.addEventListener("click", () => {
   const settings = {
     bridgeUrl: document.getElementById("bridge-url")?.value,
-    apiKey: document.getElementById("api-key")?.value,
     ollamaEndpoint: document.getElementById("ollama-endpoint")?.value,
     activeProvider: document.getElementById("active-provider-select")?.value,
+    claudeKey: document.getElementById("api-key-claude")?.value,
+    groqKey: document.getElementById("api-key-groq")?.value,
+    xaiKey: document.getElementById("api-key-xai")?.value,
+    geminiKey: document.getElementById("api-key-gemini")?.value,
   };
   localStorage.setItem("whatszara-settings", JSON.stringify(settings));
-  alert("Settings saved (local only for now)");
 });
 
-// ── Setup Wizard Nav ──
-document.querySelectorAll("#setup-wizard .btn[data-view]").forEach((btn) => {
-  btn.addEventListener("click", () => {
-    const view = btn.dataset.view;
-    const navItem = document.querySelector(`.nav-item[data-view="${view}"]`);
-    if (navItem) navItem.click();
-  });
+document.getElementById("apply-ollama-endpoint")?.addEventListener("click", async () => {
+  const endpoint = document.getElementById("ollama-endpoint")?.value;
+  if (endpoint) {
+    await invoke("set_ollama_endpoint", { endpoint });
+    refreshModels();
+  }
+});
+
+document.getElementById("apply-api-keys")?.addEventListener("click", async () => {
+  const keys = {
+    claude: document.getElementById("api-key-claude")?.value,
+    groq: document.getElementById("api-key-groq")?.value,
+    xai: document.getElementById("api-key-xai")?.value,
+    gemini: document.getElementById("api-key-gemini")?.value,
+  };
+  for (const [provider, key] of Object.entries(keys)) {
+    if (key) {
+      await invoke("set_api_key", { provider, key });
+    }
+  }
+  refreshModels();
+});
+
+document.getElementById("save-config-to-keychain")?.addEventListener("click", async () => {
+  await invoke("save_config");
+  alert("Config saved to macOS Keychain");
+});
+
+document.getElementById("load-config-from-keychain")?.addEventListener("click", async () => {
+  const raw = await invoke("load_config");
+  const result = JSON.parse(raw);
+  if (result.success) {
+    await refreshContactsTable();
+    alert("Config loaded from Keychain");
+  } else {
+    alert("No saved config found in Keychain");
+  }
+});
+
+document.getElementById("clear-config-from-keychain")?.addEventListener("click", async () => {
+  if (!confirm("Clear saved config from Keychain?")) return;
+  await invoke("clear_config");
+  alert("Config cleared from Keychain");
 });
 
 // ── Logout ──
@@ -490,16 +696,8 @@ document.getElementById("logout-bridge")?.addEventListener("click", async () => 
 
 // ── Init ──
 window.addEventListener("DOMContentLoaded", () => {
-  const saved = localStorage.getItem("whatszara-settings");
-  if (saved) {
-    const settings = JSON.parse(saved);
-    if (document.getElementById("bridge-url"))
-      document.getElementById("bridge-url").value = settings.bridgeUrl || "http://localhost:8080";
-    if (document.getElementById("ollama-endpoint"))
-      document.getElementById("ollama-endpoint").value = settings.ollamaEndpoint || "http://localhost:11434";
-    if (document.getElementById("active-provider-select"))
-      document.getElementById("active-provider-select").value = settings.activeProvider || "ollama";
-  }
+  applyTheme(localStorage.getItem("whatszara-theme") || "dark");
+  loadSettingsUI();
   pollBridge();
   bridgePollInterval = setInterval(pollBridge, 3000);
   setTimeout(refreshDashboard, 500);

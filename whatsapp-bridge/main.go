@@ -61,6 +61,12 @@ func NewMessageStore() (*MessageStore, error) {
 
 	// Create tables if they don't exist
 	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS contacts (
+			jid TEXT PRIMARY KEY,
+			name TEXT,
+			phone TEXT
+		);
+
 		CREATE TABLE IF NOT EXISTS chats (
 			jid TEXT PRIMARY KEY,
 			name TEXT,
@@ -96,6 +102,15 @@ func NewMessageStore() (*MessageStore, error) {
 // Close the database connection
 func (store *MessageStore) Close() error {
 	return store.db.Close()
+}
+
+// Store a contact in the database
+func (store *MessageStore) StoreContact(jid, name, phone string) error {
+	_, err := store.db.Exec(
+		"INSERT OR REPLACE INTO contacts (jid, name, phone) VALUES (?, ?, ?)",
+		jid, name, phone,
+	)
+	return err
 }
 
 // Store a chat in the database
@@ -417,6 +432,15 @@ func handleMessage(client *whatsmeow.Client, messageStore *MessageStore, msg *ev
 	// Get appropriate chat name (pass nil for conversation since we don't have one for regular messages)
 	name := GetChatName(client, messageStore, msg.Info.Chat, chatJID, nil, sender, logger)
 
+	// Update contact in database
+	contactName := name
+	if contactName == "" {
+		contactName = sender
+	}
+	if err := messageStore.StoreContact(chatJID, contactName, sender); err != nil {
+		logger.Warnf("Failed to store contact: %v", err)
+	}
+
 	// Update chat in database with the message timestamp (keeps last message time updated)
 	err := messageStore.StoreChat(chatJID, name, msg.Info.Timestamp)
 	if err != nil {
@@ -675,10 +699,24 @@ func extractDirectPathFromURL(url string) string {
 	return "/" + pathPart
 }
 
+// Check API key from env var if set
+func checkAPIKey(r *http.Request) bool {
+	apiKey := os.Getenv("API_KEY")
+	if apiKey == "" {
+		return true // No API key configured, allow all
+	}
+	return r.Header.Get("Authorization") == "Bearer "+apiKey
+}
+
 // Start a REST API server to expose the WhatsApp client functionality
 func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port int) {
 	// Handler for sending messages
 	http.HandleFunc("/api/send", func(w http.ResponseWriter, r *http.Request) {
+		if !checkAPIKey(r) {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		// Only allow POST requests
 		// Only allow POST requests
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -725,6 +763,10 @@ func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port 
 
 	// Handler for downloading media
 	http.HandleFunc("/api/download", func(w http.ResponseWriter, r *http.Request) {
+		if !checkAPIKey(r) {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
 		// Only allow POST requests
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -1046,9 +1088,13 @@ func handleHistorySync(client *whatsmeow.Client, messageStore *MessageStore, his
 				continue
 			}
 
-			messageStore.StoreChat(chatJID, name, timestamp)
+		// Store contact from history sync
+		phone := strings.Split(chatJID, "@")[0]
+		messageStore.StoreContact(chatJID, name, phone)
 
-			// Store messages
+		messageStore.StoreChat(chatJID, name, timestamp)
+
+		// Store messages
 			for _, msg := range messages {
 				if msg == nil || msg.Message == nil {
 					continue

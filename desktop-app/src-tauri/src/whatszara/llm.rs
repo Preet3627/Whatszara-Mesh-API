@@ -22,6 +22,8 @@ pub trait LLMProvider: Send + Sync {
     fn default_model(&self) -> &str;
     fn set_model(&mut self, model: &str);
     fn current_model(&self) -> &str;
+    fn set_endpoint(&mut self, _endpoint: &str) {}
+    fn set_api_key(&mut self, _key: &str) {}
 }
 
 // ── Ollama ─────────────────────────────────────
@@ -35,6 +37,7 @@ impl LLMProvider for OllamaProvider {
     fn name(&self) -> &str { "ollama" }
     fn current_model(&self) -> &str { &self.model }
     fn set_model(&mut self, model: &str) { self.model = model.to_string(); }
+    fn set_endpoint(&mut self, endpoint: &str) { self.endpoint = endpoint.to_string(); }
 
     async fn chat(&self, messages: &[LLMMessage], system_prompt: Option<&str>) -> Result<LLMResponse, String> {
         let client = reqwest::Client::new();
@@ -74,7 +77,9 @@ impl LLMProvider for OllamaProvider {
         Ok(models)
     }
 
-    fn default_model(&self) -> &str { &self.model }
+    fn default_model(&self) -> &str {
+        if self.model.is_empty() { "llama3.2" } else { &self.model }
+    }
 }
 
 // ── Claude ─────────────────────────────────────
@@ -116,11 +121,19 @@ impl LLMProvider for ClaudeProvider {
     }
 
     async fn list_models(&self) -> Result<Vec<String>, String> {
-        Ok(vec![
-            "claude-sonnet-4-20250514".into(),
-            "claude-4-opus-20250514".into(),
-            "claude-3-5-haiku-20241022".into(),
-        ])
+        let client = reqwest::Client::new();
+        let resp = client.get("https://api.anthropic.com/v1/models")
+            .header("x-api-key", &self.api_key)
+            .header("anthropic-version", "2023-06-01")
+            .timeout(std::time::Duration::from_secs(5))
+            .send()
+            .await
+            .map_err(|_| "Claude API not available".to_string())?;
+        let data: serde_json::Value = resp.json().await.map_err(|_| "Bad response".to_string())?;
+        let models = data["data"].as_array().unwrap_or(&vec![]).iter()
+            .filter_map(|m| m["id"].as_str().map(|s| s.to_string()))
+            .collect();
+        Ok(models)
     }
 
     fn default_model(&self) -> &str { &self.model }
@@ -160,12 +173,18 @@ impl LLMProvider for GroqProvider {
     }
 
     async fn list_models(&self) -> Result<Vec<String>, String> {
-        Ok(vec![
-            "llama-3.3-70b-versatile".into(),
-            "llama-3.1-8b-instant".into(),
-            "mixtral-8x7b-32768".into(),
-            "gemma2-9b-it".into(),
-        ])
+        let client = reqwest::Client::new();
+        let resp = client.get("https://api.groq.com/openai/v1/models")
+            .bearer_auth(&self.api_key)
+            .timeout(std::time::Duration::from_secs(5))
+            .send()
+            .await
+            .map_err(|_| "Groq API not available".to_string())?;
+        let data: serde_json::Value = resp.json().await.map_err(|_| "Bad response".to_string())?;
+        let models = data["data"].as_array().unwrap_or(&vec![]).iter()
+            .filter_map(|m| m["id"].as_str().map(|s| s.to_string()))
+            .collect();
+        Ok(models)
     }
 
     fn default_model(&self) -> &str { &self.model }
@@ -205,7 +224,18 @@ impl LLMProvider for GrokProvider {
     }
 
     async fn list_models(&self) -> Result<Vec<String>, String> {
-        Ok(vec!["grok-3-beta".into(), "grok-2-1212".into()])
+        let client = reqwest::Client::new();
+        let resp = client.get("https://api.x.ai/v1/models")
+            .bearer_auth(&self.api_key)
+            .timeout(std::time::Duration::from_secs(5))
+            .send()
+            .await
+            .map_err(|_| "Grok API not available".to_string())?;
+        let data: serde_json::Value = resp.json().await.map_err(|_| "Bad response".to_string())?;
+        let models = data["data"].as_array().unwrap_or(&vec![]).iter()
+            .filter_map(|m| m["id"].as_str().map(|s| s.to_string()))
+            .collect();
+        Ok(models)
     }
 
     fn default_model(&self) -> &str { &self.model }
@@ -249,11 +279,21 @@ impl LLMProvider for GeminiProvider {
     }
 
     async fn list_models(&self) -> Result<Vec<String>, String> {
-        Ok(vec![
-            "gemini-2.5-flash-001".into(),
-            "gemini-2.5-pro-001".into(),
-            "gemini-2.0-flash".into(),
-        ])
+        let client = reqwest::Client::new();
+        let url = format!("https://generativelanguage.googleapis.com/v1beta/models?key={}", self.api_key);
+        let resp = client.get(&url)
+            .timeout(std::time::Duration::from_secs(5))
+            .send()
+            .await
+            .map_err(|_| "Gemini API not available".to_string())?;
+        let data: serde_json::Value = resp.json().await.map_err(|_| "Bad response".to_string())?;
+        let models = data["models"].as_array().unwrap_or(&vec![]).iter()
+            .filter_map(|m| m["name"].as_str().map(|s| {
+                s.trim_start_matches("models/").to_string()
+            }))
+            .filter(|s| !s.contains("generateContent") && !s.contains("embedding"))
+            .collect();
+        Ok(models)
     }
 
     fn default_model(&self) -> &str { &self.model }
@@ -310,7 +350,9 @@ impl ProviderRegistry {
         let mut results = vec![];
         for p in &self.providers {
             let models = p.list_models().await.unwrap_or_else(|_| vec![p.default_model().to_string()]);
-            results.push((p.name().to_string(), models, p.current_model().to_string()));
+            let current = p.current_model().to_string();
+            let effective = if current.is_empty() { models.first().cloned().unwrap_or_else(|| current) } else { current };
+            results.push((p.name().to_string(), models, effective));
         }
         results
     }

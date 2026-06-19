@@ -24,7 +24,7 @@ fn get_status(state: tauri::State<OrchestratorState>) -> Result<String, String> 
 
 #[tauri::command]
 async fn process_message(state: tauri::State<'_, OrchestratorState>, message: String, contact: String) -> Result<String, String> {
-    let orch = state.0.lock().await;
+    let mut orch = state.0.lock().await;
     match orch.process_message(&message, &contact).await {
         Ok(r) => Ok(r.to_string()),
         Err(e) => Ok(serde_json::json!({ "success": false, "error": e }).to_string()),
@@ -70,7 +70,7 @@ async fn send_reply(
     message: String,
 ) -> Result<String, String> {
     let content = {
-        let orch = state.0.lock().await;
+        let mut orch = state.0.lock().await;
         let result = orch.process_message(&message, &jid).await.map_err(|e| e.to_string())?;
         result["content"].as_str().unwrap_or("No response").to_string()
     };
@@ -79,9 +79,12 @@ async fn send_reply(
         .build()
         .map_err(|e| e.to_string())?;
     let payload = serde_json::json!({ "recipient": jid, "message": content });
-    let resp = client.post("http://localhost:8080/api/send")
-        .json(&payload)
-        .send()
+    let mut req = client.post("http://localhost:8080/api/send")
+        .json(&payload);
+    if let Ok(key) = std::env::var("API_KEY") {
+        req = req.header("Authorization", format!("Bearer {}", key));
+    }
+    let resp = req.send()
         .await
         .map_err(|e| format!("Bridge send failed: {}", e))?;
     if !resp.status().is_success() {
@@ -145,6 +148,7 @@ async fn update_permissions(
     if let Some(v) = media_control { orch.policy.tool_permissions.media_control_enabled = v; }
     if let Some(v) = app_launching { orch.policy.tool_permissions.app_launching_enabled = v; }
     if let Some(v) = whatsapp { orch.policy.tool_permissions.whatsapp_enabled = v; }
+    auto_save_config(&orch);
     Ok(serde_json::json!({ "success": true }).to_string())
 }
 
@@ -155,11 +159,13 @@ async fn update_allowlist(
     jid: String,
 ) -> Result<String, String> {
     let mut orch = state.0.lock().await;
-    match action.as_str() {
+    let result = match action.as_str() {
         "add" => { orch.policy.add_to_allowlist(&jid); Ok(serde_json::json!({ "success": true }).to_string()) }
         "remove" => { orch.policy.remove_from_allowlist(&jid); Ok(serde_json::json!({ "success": true }).to_string()) }
         _ => Ok(serde_json::json!({ "success": false, "error": "Invalid action, use 'add' or 'remove'" }).to_string()),
-    }
+    };
+    auto_save_config(&orch);
+    result
 }
 
 #[tauri::command]
@@ -177,6 +183,7 @@ async fn update_contact_mode(
     };
     let mut orch = state.0.lock().await;
     orch.policy.set_contact_mode(&jid, contact_mode);
+    auto_save_config(&orch);
     Ok(serde_json::json!({ "success": true }).to_string())
 }
 
@@ -224,10 +231,7 @@ async fn check_bridge(state: tauri::State<'_, Arc<BridgeProcess>>) -> Result<Str
             if !was_connected {
                 state.output.lock().unwrap().push_str("CONNECTED_SAVED\n");
                 if let Ok(data) = std::fs::read(whatszara::whatsapp::session_db_path()) {
-                    let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &data);
-                    let _ = std::process::Command::new("security")
-                        .args(["add-generic-password", "-s", "whatszara-wa-session", "-a", "whatszara", "-w", &b64, "-U"])
-                        .output();
+                    let _ = save_keychain(&data, "whatszara-wa-session");
                 }
             }
             "connected"
@@ -255,11 +259,29 @@ async fn logout_bridge(state: tauri::State<'_, Arc<BridgeProcess>>) -> Result<St
         let mut qr = state.qr_code.lock().unwrap();
         qr.clear();
     }
-    let _ = std::process::Command::new("security")
-        .args(["delete-generic-password", "-s", "whatszara-wa-session", "-a", "whatszara"])
-        .output();
+    let _ = delete_keychain("whatszara-wa-session");
     let _ = std::fs::remove_file(whatszara::whatsapp::session_db_path());
     Ok(serde_json::json!({"success": true}).to_string())
+}
+
+#[tauri::command]
+async fn get_pending_actions(state: tauri::State<'_, OrchestratorState>) -> Result<String, String> {
+    let orch = state.0.lock().await;
+    Ok(serde_json::to_string(&orch.pending_actions()).unwrap_or_default())
+}
+
+#[tauri::command]
+async fn approve_action(state: tauri::State<'_, OrchestratorState>, id: String) -> Result<String, String> {
+    let mut orch = state.0.lock().await;
+    let result = orch.approve_pending_action(&id).await;
+    Ok(result.to_string())
+}
+
+#[tauri::command]
+async fn reject_action(state: tauri::State<'_, OrchestratorState>, id: String) -> Result<String, String> {
+    let mut orch = state.0.lock().await;
+    let result = orch.reject_pending_action(&id);
+    Ok(result.to_string())
 }
 
 #[tauri::command]
@@ -278,20 +300,95 @@ fn list_messages(jid: String, limit: Option<usize>) -> Result<String, String> {
     }
 }
 
-fn save_keychain(data: &[u8]) -> Result<(), String> {
+#[tauri::command]
+async fn set_ollama_endpoint(state: tauri::State<'_, OrchestratorState>, endpoint: String) -> Result<String, String> {
+    let mut orch = state.0.lock().await;
+    for p in &mut orch.providers.providers {
+        if p.name() == "ollama" {
+            p.set_endpoint(&endpoint);
+            return Ok(serde_json::json!({"success": true}).to_string());
+        }
+    }
+    Ok(serde_json::json!({"success": false, "error": "Ollama provider not found"}).to_string())
+}
+
+#[tauri::command]
+async fn save_config(state: tauri::State<'_, OrchestratorState>) -> Result<String, String> {
+    let policy = state.0.lock().await.policy.to_json();
+    let data = serde_json::to_vec(&policy).map_err(|e| e.to_string())?;
+    save_keychain(&data, "whatszara-config").ok();
+    Ok(serde_json::json!({"success": true}).to_string())
+}
+
+#[tauri::command]
+async fn load_config(state: tauri::State<'_, OrchestratorState>) -> Result<String, String> {
+    let data = match load_keychain("whatszara-config") {
+        Ok(d) => d,
+        Err(_) => return Ok(serde_json::json!({"success": false, "error": "No config saved"}).to_string()),
+    };
+    let config: serde_json::Value = serde_json::from_slice(&data).map_err(|e| e.to_string())?;
+    let mut orch = state.0.lock().await;
+    if let Some(perms) = config["tool_permissions"].as_object() {
+        if let Some(v) = perms.get("shell").and_then(|v| v.as_bool()) { orch.policy.tool_permissions.shell_enabled = v; }
+        if let Some(v) = perms.get("file_access").and_then(|v| v.as_bool()) { orch.policy.tool_permissions.file_access_enabled = v; }
+        if let Some(v) = perms.get("media_control").and_then(|v| v.as_bool()) { orch.policy.tool_permissions.media_control_enabled = v; }
+        if let Some(v) = perms.get("app_launching").and_then(|v| v.as_bool()) { orch.policy.tool_permissions.app_launching_enabled = v; }
+        if let Some(v) = perms.get("whatsapp").and_then(|v| v.as_bool()) { orch.policy.tool_permissions.whatsapp_enabled = v; }
+    }
+    if let Some(allowlist) = config["allowlist"].as_array() {
+        for entry in allowlist {
+            if let Some(jid) = entry.as_str() {
+                orch.policy.add_to_allowlist(jid);
+            }
+        }
+    }
+    if let Some(modes) = config["contact_modes"].as_object() {
+        for (jid, mode_str) in modes {
+            let mode = match mode_str.as_str() {
+                Some("assistant") => ContactMode::Assistant,
+                Some("chat") => ContactMode::Chat,
+                Some("summarize") => ContactMode::Summarize,
+                Some("blocked") => ContactMode::Blocked,
+                _ => continue,
+            };
+            orch.policy.set_contact_mode(jid, mode);
+        }
+    }
+    Ok(serde_json::json!({"success": true}).to_string())
+}
+
+#[tauri::command]
+async fn clear_config() -> Result<String, String> {
+    delete_keychain("whatszara-config").ok();
+    Ok(serde_json::json!({"success": true}).to_string())
+}
+
+#[tauri::command]
+async fn set_api_key(state: tauri::State<'_, OrchestratorState>, provider: String, key: String) -> Result<String, String> {
+    let mut orch = state.0.lock().await;
+    for p in &mut orch.providers.providers {
+        if p.name() == provider {
+            p.set_api_key(&key);
+            return Ok(serde_json::json!({"success": true}).to_string());
+        }
+    }
+    Ok(serde_json::json!({"success": false, "error": "Provider not found"}).to_string())
+}
+
+fn save_keychain(data: &[u8], service: &str) -> Result<(), String> {
     use std::process::Command;
     let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, data);
     Command::new("security")
-        .args(["add-generic-password", "-s", "whatszara-wa-session", "-a", "whatszara", "-w", &b64, "-U"])
+        .args(["add-generic-password", "-s", service, "-a", "whatszara", "-w", &b64, "-U"])
         .output()
         .map_err(|e| format!("Keychain write error: {}", e))?;
     Ok(())
 }
 
-fn load_keychain() -> Result<Vec<u8>, String> {
+fn load_keychain(service: &str) -> Result<Vec<u8>, String> {
     use std::process::Command;
     let out = Command::new("security")
-        .args(["find-generic-password", "-s", "whatszara-wa-session", "-a", "whatszara", "-w"])
+        .args(["find-generic-password", "-s", service, "-a", "whatszara", "-w"])
         .output()
         .map_err(|e| format!("Keychain read error: {}", e))?;
     if !out.status.success() {
@@ -302,11 +399,56 @@ fn load_keychain() -> Result<Vec<u8>, String> {
         .map_err(|e| format!("Base64 decode: {}", e))
 }
 
+fn delete_keychain(service: &str) -> Result<(), String> {
+    use std::process::Command;
+    Command::new("security")
+        .args(["delete-generic-password", "-s", service, "-a", "whatszara"])
+        .output()
+        .map_err(|e| format!("Keychain delete error: {}", e))?;
+    Ok(())
+}
+
+fn auto_save_config(orch: &WhatszaraOrchestrator) {
+    if let Ok(data) = serde_json::to_vec(&orch.policy.to_json()) {
+        let _ = save_keychain(&data, "whatszara-config");
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let mut orch = WhatszaraOrchestrator::new();
     orch.register_default_providers();
     orch.policy.add_to_allowlist("self");
+    if let Ok(data) = load_keychain("whatszara-config") {
+        if let Ok(config) = serde_json::from_slice::<serde_json::Value>(&data) {
+            if let Some(perms) = config["tool_permissions"].as_object() {
+                if let Some(v) = perms.get("shell").and_then(|v| v.as_bool()) { orch.policy.tool_permissions.shell_enabled = v; }
+                if let Some(v) = perms.get("file_access").and_then(|v| v.as_bool()) { orch.policy.tool_permissions.file_access_enabled = v; }
+                if let Some(v) = perms.get("media_control").and_then(|v| v.as_bool()) { orch.policy.tool_permissions.media_control_enabled = v; }
+                if let Some(v) = perms.get("app_launching").and_then(|v| v.as_bool()) { orch.policy.tool_permissions.app_launching_enabled = v; }
+                if let Some(v) = perms.get("whatsapp").and_then(|v| v.as_bool()) { orch.policy.tool_permissions.whatsapp_enabled = v; }
+            }
+            if let Some(allowlist) = config["allowlist"].as_array() {
+                for entry in allowlist {
+                    if let Some(jid) = entry.as_str() {
+                        orch.policy.add_to_allowlist(jid);
+                    }
+                }
+            }
+            if let Some(modes) = config["contact_modes"].as_object() {
+                for (jid, mode_str) in modes {
+                    let mode = match mode_str.as_str() {
+                        Some("assistant") => ContactMode::Assistant,
+                        Some("chat") => ContactMode::Chat,
+                        Some("summarize") => ContactMode::Summarize,
+                        Some("blocked") => ContactMode::Blocked,
+                        _ => continue,
+                    };
+                    orch.policy.set_contact_mode(jid, mode);
+                }
+            }
+        }
+    }
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -336,6 +478,14 @@ pub fn run() {
             send_reply,
             list_contacts,
             list_messages,
+            set_ollama_endpoint,
+            save_config,
+            load_config,
+            clear_config,
+            set_api_key,
+            get_pending_actions,
+            approve_action,
+            reject_action,
         ])
         .setup(|app| {
             #[cfg(desktop)]
@@ -354,7 +504,7 @@ pub fn run() {
                 };
 
                 if bridge_path.join("main.go").exists() {
-                    if let Ok(data) = load_keychain() {
+                    if let Ok(data) = load_keychain("whatszara-wa-session") {
                         let db_path = bridge_path.join("store").join("whatsapp.db");
                         if let Some(parent) = db_path.parent() {
                             let _ = std::fs::create_dir_all(parent);
