@@ -1,6 +1,5 @@
 # Whatszara — Desktop Assistant via WhatsApp + LLM
 
-[![Docs](https://img.shields.io/badge/docs-whatszara-docs-25D366?style=flat-square)](https://github.com/Preet3627/whatszara-docs)
 [![GitHub](https://img.shields.io/github/license/Preet3627/whatszara?style=flat-square&color=25D366)](LICENSE)
 
 Control your desktop from anywhere using WhatsApp messages. Talk to an LLM through WhatsApp, and it executes your commands — shell, apps, media, file access — with a secure permission system and risk-based approval.
