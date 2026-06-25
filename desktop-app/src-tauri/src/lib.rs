@@ -118,6 +118,26 @@ async fn send_reply(
 }
 
 #[tauri::command]
+async fn get_profile_picture(jid: String) -> Result<String, String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let url = format!("http://localhost:8080/api/picture?jid={}", jid);
+    let mut req = client.get(&url);
+    if let Ok(key) = std::env::var("API_KEY") {
+        req = req.header("Authorization", format!("Bearer {}", key));
+    }
+    let resp = req.send().await.map_err(|e| format!("Failed to fetch picture: {}", e))?;
+    if !resp.status().is_success() {
+        return Err(format!("Bridge returned status: {}", resp.status()));
+    }
+    let bytes = resp.bytes().await.map_err(|e| format!("Failed to read response: {}", e))?;
+    let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes);
+    Ok(format!("data:image/jpeg;base64,{}", b64))
+}
+
+#[tauri::command]
 async fn set_active_provider(state: tauri::State<'_, OrchestratorState>, name: String) -> Result<String, String> {
     let mut orch = state.0.lock().await;
     match orch.providers.set_active(&name) {
@@ -211,19 +231,36 @@ async fn update_contact_mode(
     Ok(serde_json::json!({ "success": true }).to_string())
 }
 
+fn has_saved_session() -> bool {
+    load_keychain("whatszara-wa-session").is_ok()
+}
+
 #[tauri::command]
 async fn check_bridge(state: tauri::State<'_, Arc<BridgeProcess>>) -> Result<String, String> {
+    let has_session = has_saved_session();
     let alive = {
         let mut guard = state.child.lock().unwrap();
         if guard.is_none() {
-            return Ok(serde_json::json!({"status": "stopped"}).to_string());
+            let output = state.output.lock().unwrap();
+            if output.contains("Failed to start bridge") {
+                return Ok(serde_json::json!({
+                    "status": "error",
+                    "error": output.clone(),
+                    "has_session": has_session
+                }).to_string());
+            }
+            return Ok(serde_json::json!({
+                "status": "stopped",
+                "has_session": has_session
+            }).to_string());
         }
         let mut child = guard.take().unwrap();
         match child.try_wait() {
             Ok(Some(status)) => {
                 return Ok(serde_json::json!({
                     "status": "error",
-                    "error": format!("Bridge exited with code {:?}", status.code())
+                    "error": format!("Bridge exited with code {:?}", status.code()),
+                    "has_session": has_session
                 }).to_string());
             }
             Ok(None) => {
@@ -235,7 +272,8 @@ async fn check_bridge(state: tauri::State<'_, Arc<BridgeProcess>>) -> Result<Str
                 let _ = child.wait();
                 return Ok(serde_json::json!({
                     "status": "error",
-                    "error": e.to_string()
+                    "error": e.to_string(),
+                    "has_session": has_session
                 }).to_string());
             }
         }
@@ -263,9 +301,9 @@ async fn check_bridge(state: tauri::State<'_, Arc<BridgeProcess>>) -> Result<Str
             }
             "connected"
         } else if has_qr { "awaiting_scan" } else { "running" };
-        Ok(serde_json::json!({"status": status, "qr": qr_code}).to_string())
+        Ok(serde_json::json!({"status": status, "qr": qr_code, "has_session": has_session}).to_string())
     } else {
-        Ok(serde_json::json!({"status": "stopped"}).to_string())
+        Ok(serde_json::json!({"status": "stopped", "has_session": has_session}).to_string())
     }
 }
 
@@ -294,6 +332,39 @@ async fn logout_bridge(state: tauri::State<'_, Arc<BridgeProcess>>) -> Result<St
 }
 
 #[tauri::command]
+async fn start_bridge(app_handle: tauri::AppHandle, state: tauri::State<'_, Arc<BridgeProcess>>) -> Result<String, String> {
+    {
+        let mut guard = state.child.lock().unwrap();
+        if let Some(mut child) = guard.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+    {
+        let mut output = state.output.lock().unwrap();
+        output.clear();
+    }
+    {
+        let mut qr = state.qr_code.lock().unwrap();
+        qr.clear();
+    }
+    spawn_bridge_process(&app_handle, &*state);
+
+    let started = state.child.lock().unwrap().is_some();
+    if started {
+        Ok(serde_json::json!({"success": true}).to_string())
+    } else {
+        let error = state.output.lock().unwrap().clone();
+        let msg = if error.is_empty() {
+            "Bridge process failed to start (no output)".to_string()
+        } else {
+            error
+        };
+        Err(msg)
+    }
+}
+
+#[tauri::command]
 async fn get_pending_actions(state: tauri::State<'_, OrchestratorState>) -> Result<String, String> {
     let orch = state.0.lock().await;
     Ok(serde_json::to_string(&orch.pending_actions()).unwrap_or_default())
@@ -311,6 +382,20 @@ async fn reject_action(state: tauri::State<'_, OrchestratorState>, id: String) -
     let mut orch = state.0.lock().await;
     let result = orch.reject_pending_action(&id);
     Ok(result.to_string())
+}
+
+#[tauri::command]
+async fn approve_all_actions(state: tauri::State<'_, OrchestratorState>, contact_jid: String) -> Result<String, String> {
+    let mut orch = state.0.lock().await;
+    let results = orch.approve_all_pending_for_contact(&contact_jid).await;
+    Ok(serde_json::json!({"success": true, "count": results.len(), "results": results}).to_string())
+}
+
+#[tauri::command]
+async fn reject_all_actions(state: tauri::State<'_, OrchestratorState>, contact_jid: String) -> Result<String, String> {
+    let mut orch = state.0.lock().await;
+    let count = orch.reject_all_pending_for_contact(&contact_jid);
+    Ok(serde_json::json!({"success": true, "count": count}).to_string())
 }
 
 #[tauri::command]
@@ -383,12 +468,23 @@ async fn load_config(state: tauri::State<'_, OrchestratorState>) -> Result<Strin
             orch.policy.set_contact_mode(jid, mode);
         }
     }
+    if let Some(style) = config["chat_style"].as_str() {
+        orch.policy.set_chat_style(style);
+    }
     Ok(serde_json::json!({"success": true}).to_string())
 }
 
 #[tauri::command]
 async fn clear_config() -> Result<String, String> {
     delete_keychain("whatszara-config").ok();
+    Ok(serde_json::json!({"success": true}).to_string())
+}
+
+#[tauri::command]
+async fn set_chat_style(state: tauri::State<'_, OrchestratorState>, style: String) -> Result<String, String> {
+    let mut orch = state.0.lock().await;
+    orch.policy.set_chat_style(&style);
+    auto_save_config(&orch);
     Ok(serde_json::json!({"success": true}).to_string())
 }
 
@@ -434,6 +530,77 @@ fn auto_save_config(orch: &WhatszaraOrchestrator) {
     }
 }
 
+fn spawn_bridge_process(app_handle: &tauri::AppHandle, bridge_state: &Arc<BridgeProcess>) {
+    let (bridge_cmd, bridge_args, bridge_cwd): (String, Vec<String>, std::path::PathBuf) = if cfg!(debug_assertions) {
+        let repo_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../whatsapp-bridge")
+            .canonicalize()
+            .unwrap_or_else(|_| std::path::PathBuf::from("../whatsapp-bridge"));
+        ("go".into(), vec!["run".into(), "main.go".into()], repo_path)
+    } else {
+        let exe_name = if cfg!(target_os = "windows") { "whatsapp-bridge-windows.exe" }
+            else if cfg!(target_os = "linux") { "whatsapp-bridge-linux" }
+            else { "whatsapp-bridge-darwin" };
+        let exe = app_handle.path().resource_dir()
+            .map(|p| p.join("bin").join(exe_name))
+            .or_else(|_| {
+                std::env::current_exe()
+                    .map(|p| p.parent().unwrap().join("../Resources/bin").join(exe_name))
+            })
+            .unwrap_or_else(|_| std::path::PathBuf::from(exe_name));
+        let data_dir = app_handle.path().app_data_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        (exe.to_string_lossy().to_string(), vec![], data_dir)
+    };
+
+    let _ = std::fs::create_dir_all(&bridge_cwd);
+
+    if let Ok(data) = load_keychain("whatszara-wa-session") {
+        let store_dir = bridge_cwd.join("store");
+        let _ = std::fs::create_dir_all(&store_dir);
+        let _ = std::fs::write(store_dir.join("whatsapp.db"), &data);
+    } else {
+        let store_dir = bridge_cwd.join("store");
+        let _ = std::fs::create_dir_all(&store_dir);
+    }
+
+    {
+        let mut store = bridge_state.store_dir.lock().unwrap();
+        *store = Some(bridge_cwd.join("store"));
+    }
+    match Command::new(&bridge_cmd)
+        .args(&bridge_args)
+        .current_dir(&bridge_cwd)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+    {
+        Ok(mut child) => {
+            if let Some(stdout) = child.stdout.take() {
+                let state_clone = Arc::clone(bridge_state);
+                std::thread::spawn(move || {
+                    let reader = std::io::BufReader::new(stdout);
+                    for line in reader.lines() {
+                        if let Ok(line) = line {
+                            let mut output = state_clone.output.lock().unwrap();
+                            output.push_str(&line);
+                            output.push('\n');
+                            if line.starts_with("QR_CODE:") {
+                                let code = line.trim_start_matches("QR_CODE:").to_string();
+                                *state_clone.qr_code.lock().unwrap() = code;
+                            }
+                        }
+                    }
+                });
+            }
+            *bridge_state.child.lock().unwrap() = Some(child);
+        }
+        Err(e) => {
+            let mut output = bridge_state.output.lock().unwrap();
+            output.push_str(&format!("Failed to start bridge: {}\n", e));
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let mut orch = WhatszaraOrchestrator::new();
@@ -466,6 +633,9 @@ pub fn run() {
                     };
                     orch.policy.set_contact_mode(jid, mode);
                 }
+            }
+            if let Some(style) = config["chat_style"].as_str() {
+                orch.policy.set_chat_style(style);
             }
         }
     }
@@ -501,7 +671,9 @@ pub fn run() {
             update_contact_mode,
             check_bridge,
             logout_bridge,
+            start_bridge,
             send_reply,
+            get_profile_picture,
             list_contacts,
             list_messages,
             set_ollama_endpoint,
@@ -509,9 +681,12 @@ pub fn run() {
             load_config,
             clear_config,
             set_api_key,
+            set_chat_style,
             get_pending_actions,
             approve_action,
             reject_action,
+            approve_all_actions,
+            reject_all_actions,
         ])
         .setup(|app| {
             let auto_read_orch = app.state::<OrchestratorState>().0.clone();
@@ -519,7 +694,30 @@ pub fn run() {
                 let rt = tokio::runtime::Runtime::new().expect("Failed to create auto-read runtime");
                 rt.block_on(async {
                     use whatszara::whatsapp;
+                    use whatszara::orchestrator::{WhatszaraOrchestrator, PendingAction};
                     use std::time::Duration;
+
+                    let send_whatsapp = |contact: &str, message: &str| {
+                        let contact = contact.to_string();
+                        let message = message.to_string();
+                        async move {
+                            let client = reqwest::Client::builder()
+                                .timeout(Duration::from_secs(10))
+                                .build();
+                            if let Ok(client) = client {
+                                let payload = serde_json::json!({
+                                    "recipient": contact,
+                                    "message": message
+                                });
+                                let mut req = client.post("http://localhost:8080/api/send")
+                                    .json(&payload);
+                                if let Ok(key) = std::env::var("API_KEY") {
+                                    req = req.header("Authorization", format!("Bearer {}", key));
+                                }
+                                let _ = req.send().await;
+                            }
+                        }
+                    };
 
                     loop {
                         let should_run = {
@@ -560,6 +758,51 @@ pub fn run() {
                                 }
 
                                 for (contact, content) in &to_process {
+                                    let handled = {
+                                        let mut orch = auto_read_orch.lock().await;
+                                        if !orch.auto_read_enabled {
+                                            break;
+                                        }
+                                        if let Some((pa_id, approved, pending)) = orch.check_pending_action_reply(content, contact) {
+                                            let result = if pa_id == "__all__" {
+                                                if approved {
+                                                    let results = orch.approve_all_pending_for_contact(contact).await;
+                                                    let count = results.len();
+                                                    format!("✅ *Approved all {} actions*", count)
+                                                } else {
+                                                    let count = orch.reject_all_pending_for_contact(contact);
+                                                    format!("❌ *Rejected all {} actions*", count)
+                                                }
+                                            } else if approved {
+                                                let action_result = orch.approve_pending_action(&pa_id).await;
+                                                let confirmation = WhatszaraOrchestrator::format_approval_confirmation(&pending,
+                                                    &serde_json::from_value(action_result["action_result"].clone()).unwrap_or_default());
+                                                confirmation
+                                            } else {
+                                                orch.reject_pending_action(&pa_id);
+                                                WhatszaraOrchestrator::format_rejection_confirmation(&pending)
+                                            };
+                                            drop(orch);
+                                            send_whatsapp(contact, &result).await;
+                                            true
+                                        } else {
+                                            false
+                                        }
+                                    };
+
+                                    if handled {
+                                        continue;
+                                    }
+
+                                    let query_response = {
+                                        let orch = auto_read_orch.lock().await;
+                                        orch.check_pending_action_query(content, contact)
+                                    };
+                                    if let Some(response) = query_response {
+                                        send_whatsapp(contact, &response).await;
+                                        continue;
+                                    }
+
                                     let result = {
                                         let mut orch = auto_read_orch.lock().await;
                                         if !orch.auto_read_enabled {
@@ -569,23 +812,25 @@ pub fn run() {
                                     };
 
                                     if let Ok(json) = &result {
-                                        if let Some(reply) = json["content"].as_str() {
-                                            if !reply.is_empty() && reply != "No response" {
-                                                let client = reqwest::Client::builder()
-                                                    .timeout(Duration::from_secs(10))
-                                                    .build();
-                                                if let Ok(client) = client {
-                                                    let payload = serde_json::json!({
-                                                        "recipient": contact,
-                                                        "message": reply
-                                                    });
-                                                    let mut req = client.post("http://localhost:8080/api/send")
-                                                        .json(&payload);
-                                                    if let Ok(key) = std::env::var("API_KEY") {
-                                                        req = req.header("Authorization", format!("Bearer {}", key));
-                                                    }
-                                                    let _ = req.send().await;
+                                        let has_pending = json["has_pending_actions"].as_bool().unwrap_or(false);
+
+                                        if has_pending {
+                                            if let Some(pending_arr) = json["pending_actions"].as_array() {
+                                                let pending_list: Vec<PendingAction> = pending_arr.iter()
+                                                    .filter_map(|v| serde_json::from_value(v.clone()).ok())
+                                                    .collect();
+                                                let approval_msg = WhatszaraOrchestrator::format_batch_approval_request(&pending_list);
+                                                send_whatsapp(contact, &approval_msg).await;
+                                            } else {
+                                                let pending_value = json["pending_action"].clone();
+                                                if let Ok(pending) = serde_json::from_value::<PendingAction>(pending_value) {
+                                                    let approval_msg = WhatszaraOrchestrator::format_approval_request(&pending);
+                                                    send_whatsapp(contact, &approval_msg).await;
                                                 }
+                                            }
+                                        } else if let Some(reply) = json["content"].as_str() {
+                                            if !reply.is_empty() && reply != "No response" {
+                                                send_whatsapp(contact, reply).await;
                                             }
                                         }
                                     }
@@ -605,68 +850,8 @@ pub fn run() {
 
             #[cfg(desktop)]
             {
-                // Determine bridge binary, args, and working directory
-                let (bridge_cmd, bridge_args, bridge_cwd): (String, Vec<String>, std::path::PathBuf) = if cfg!(debug_assertions) {
-                    let repo_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                        .join("../../whatsapp-bridge")
-                        .canonicalize()
-                        .unwrap_or_else(|_| std::path::PathBuf::from("../whatsapp-bridge"));
-                    ("go".into(), vec!["run".into(), "main.go".into()], repo_path)
-                } else {
-                    let exe_name = if cfg!(target_os = "windows") { "whatsapp-bridge-windows.exe" }
-                        else if cfg!(target_os = "linux") { "whatsapp-bridge-linux" }
-                        else { "whatsapp-bridge-darwin" };
-                    let exe = app.path().resource_dir()
-                        .map(|p| p.join("bin").join(exe_name))
-                        .unwrap_or_else(|_| std::path::PathBuf::from(exe_name));
-                    let data_dir = app.path().app_data_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-                    (exe.to_string_lossy().to_string(), vec![], data_dir)
-                };
-
-                // Restore session from keychain
-                if let Ok(data) = load_keychain("whatszara-wa-session") {
-                    let store_dir = bridge_cwd.join("store");
-                    let _ = std::fs::create_dir_all(&store_dir);
-                    let _ = std::fs::write(store_dir.join("whatsapp.db"), &data);
-                }
-
                 let bridge_state = app.state::<Arc<BridgeProcess>>();
-                {
-                    let mut store = bridge_state.store_dir.lock().unwrap();
-                    *store = Some(bridge_cwd.join("store"));
-                }
-                match Command::new(&bridge_cmd)
-                    .args(&bridge_args)
-                    .current_dir(&bridge_cwd)
-                    .stdout(Stdio::piped())
-                    .stderr(Stdio::inherit())
-                    .spawn()
-                {
-                    Ok(mut child) => {
-                        if let Some(stdout) = child.stdout.take() {
-                            let state_clone = Arc::clone(&*bridge_state);
-                            std::thread::spawn(move || {
-                                let reader = std::io::BufReader::new(stdout);
-                                for line in reader.lines() {
-                                    if let Ok(line) = line {
-                                        let mut output = state_clone.output.lock().unwrap();
-                                        output.push_str(&line);
-                                        output.push('\n');
-                                        if line.starts_with("QR_CODE:") {
-                                            let code = line.trim_start_matches("QR_CODE:").to_string();
-                                            *state_clone.qr_code.lock().unwrap() = code;
-                                        }
-                                    }
-                                }
-                            });
-                        }
-                        *bridge_state.child.lock().unwrap() = Some(child);
-                    }
-                    Err(e) => {
-                        let mut output = bridge_state.output.lock().unwrap();
-                        output.push_str(&format!("Failed to start bridge: {}\n", e));
-                    }
-                }
+                spawn_bridge_process(app.handle(), &*bridge_state);
 
                 use tauri::tray::{TrayIconBuilder, TrayIconEvent};
                 let _tray = TrayIconBuilder::new()

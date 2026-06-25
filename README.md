@@ -14,21 +14,37 @@ Built on top of **[whatsapp-mcp](https://github.com/lharries/whatsapp-mcp)** by 
 WhatsApp Message ──▶ Orchestrator ──▶ LLM (Ollama/Claude/Groq/etc.)
                         │                        │
                         ▼                        ▼
-                 Policy/Risk Check          Decides Action + Params
-                        │                        │
-                        └────────┬───────────────┘
-                                 ▼
-                    ┌─────────────────────┐
-                    │  Risk Assessment     │
-                    │  Low → Auto-execute  │
-                    │  Med → User Approve  │
-                    │  High → User Confirm │
-                    └──────────┬──────────┘
-                               ▼
-                        System Action (shell, apps, media...)
-                               │
-                               ▼
-                        Result sent back via WhatsApp
+                 Policy/Risk Check       Returns JSON with "chat"
+                         │                 + optional "actions" array
+                         │                   (tool, params, thinking,
+                         │                    delay_ms)
+                         │                        │
+                         └────────┬───────────────┘
+                                  ▼
+                     ┌──────────────────────────────────┐
+                     │  Multi-Action Processing          │
+                     │  For each action in array:        │
+                     │   1. Show "thinking" block        │
+                     │   2. Wait delay_ms (if set)       │
+                     │   3. Evaluate risk                │
+                     │   4. Auto-execute or queue pending │
+                     └──────────┬───────────────────────┘
+                                │
+                     ┌──────────▼──────────┐
+                     │  Any pending?       │
+                     │  Yes → Send batch   │
+                     │  approval request   │
+                     │  via WhatsApp       │
+                     │  User replies ALLOW │
+                     │  ALL or individually │
+                     └──────────┬──────────┘
+                                ▼
+                     ┌──────────────────┐
+                     │  Execute approved │
+                     │  actions in order │
+                     │  with thinking &  │
+                     │  delays between   │
+                     └──────────────────┘
 ```
 
 ## Features
@@ -47,9 +63,19 @@ WhatsApp Message ──▶ Orchestrator ──▶ LLM (Ollama/Claude/Groq/etc.)
 - [x] AI reply capability from chat view with Enter-to-send
 - [x] Risk/approval system: AI-triggered tool calls with approve/reject in chat UI
 - [x] Pending actions panel with Approve/Reject buttons and badge counter
-- [x] Shell command executor with blocklist (disabled by default)
+- [x] Shell command executor with blocklist (enabled by default)
 - [x] App launcher, volume control, media playback (macOS)
-- [x] Desktop image scanner
+- [x] Desktop image scanner and file listing
+- [x] Send files from desktop via WhatsApp (image/audio/video/document)
+- [x] Send text messages via WhatsApp programmatically
+- [x] Platform-aware AI prompts (macOS/Windows/Linux detected at startup)
+- [x] WhatsApp-text approval flow — reply ALLOW/DENY to approve high-risk actions
+- [x] Approval confirmation with action-specific messages (no false "success" for pending actions)
+- [x] Profile picture fetching and caching via `/api/picture` bridge endpoint
+- [x] App icon in sidebar replacing text logo
+- [x] Manual start bridge button with error reporting
+- [x] Session detection — shows logout option when a saved session exists but bridge is stopped
+- [x] Post-logout auto-restart to show fresh QR code immediately
 - [x] Reversible undo journal for all actions
 - [x] Permanent WhatsApp auth via platform-native credential store (auto-save + restore)
 - [x] Persistent policy config in credential store (allowlist, modes, permissions)
@@ -61,9 +87,12 @@ WhatsApp Message ──▶ Orchestrator ──▶ LLM (Ollama/Claude/Groq/etc.)
 - [x] Setup.sh one-click bootstrap
 - [x] Multi-platform CI + Release workflows (GitHub Actions)
 - [x] MIT License with whatsapp-mcp attribution
+- [x] Chat style modes — 9 predefined styles (Human, Fun, Warm, Teacher, Principal, Angry, Calm, AI, Robot) + custom user-defined styles via Settings
+- [x] Multi-action AI responses — AI can chain multiple tool calls in a single response with thinking blocks and configurable time delays between them
+- [x] Batch approval — "Approve All" / "Reject All" buttons in chat UI and "ALLOW ALL" / "DENY ALL" WhatsApp replies
+- [x] WhatsApp ban warning banner — dismissible warning about using a secondary WhatsApp account
 
 ### 📋 Planned
-- [ ] reCAPTCHA + image-to-text verification integration
 - [ ] Scheduled/automated actions
 - [ ] Multiple WhatsApp number support
 - [ ] Voice message transcription
@@ -94,7 +123,7 @@ WhatsApp Message ──▶ Orchestrator ──▶ LLM (Ollama/Claude/Groq/etc.)
 │                                   │                                  │    │
 │  ┌────────────────────────┐      │  ┌──────────────────────────┐   │    │
  │  │  Credential Store       │      │  │  Action Engine          │   │    │
-│  │  - WA session (auto)   │      │  │  - Shell (disabled)     │   │    │
+│  │  - WA session (auto)   │      │  │  - Shell (enabled)      │   │    │
 │  │  - Config (allowlist   │      │  │  - macOS: osascript     │   │    │
 │  │    modes, perms)       │      │  │  - Volume / Media       │   │    │
 │  └────────────────────────┘      │  │  - File scanner         │   │    │
@@ -103,9 +132,9 @@ WhatsApp Message ──▶ Orchestrator ──▶ LLM (Ollama/Claude/Groq/etc.)
 │                                   │                                  │    │
 │                                   │  ┌──────────────────────────┐   │    │
 │                                   │  │  Risk/Approval System    │   │    │
-│                                   │  │  - Tool call parsing     │   │    │
+│                                   │  │  - AI responds in JSON   │   │    │
 │                                   │  │  - Pending actions queue │   │    │
-│                                   │  │  - Approve/Reject UI     │   │    │
+│                                   │  │  - ALLOW/DENY via WhatsApp│   │    │
 │                                   │  └──────────────────────────┘   │    │
 │                                   │                                  │    │
 │                                   │  ┌──────────────────────────┐   │    │
@@ -165,11 +194,12 @@ The dashboard shows bridge states in real time:
 
 | Status | Meaning |
 |--------|---------|
-| `stopped` | The bridge is not running |
+| `stopped` | The bridge is not running; "Start Bridge" button visible |
 | `starting...` | The bridge process is booting |
 | `scan QR` | WhatsApp needs device linking |
 | `connected` | The bridge API is reachable and authenticated |
-| `error` | The bridge failed; open the dashboard error detail |
+| `error` | The bridge failed; error detail shown in dashboard |
+| Logout button | Visible when connected OR when stopped/errored with a saved session |
 
 ### 2. Choose an LLM Provider
 
@@ -261,23 +291,52 @@ make desktop
 
 Whatszara uses a **propose → evaluate → execute** flow with risk-based approval.
 
+### Approval via WhatsApp
+
+When the AI requests Medium or High risk actions, an approval request is sent directly to your WhatsApp. For single actions:
+
+```
+⚠️ *Action Requires Approval*
+
+Action: `execute_shell`
+Risk: 🔴 *High*
+Command: `ls -la ~/Desktop`
+
+Reply *ALLOW* to execute or *DENY* to reject.
+```
+
+For multiple actions in a single response (AI chains them with thinking blocks):
+
+```
+⚠️ *Multiple Actions Require Approval*
+
+1. 🔴 execute_shell High `ls -la ~/Desktop`
+   _First, let me see what's on the desktop..._
+2. 🔴 execute_shell High `df -h`
+   _Now checking disk usage..._
+
+Reply *ALLOW ALL* to execute all, *ALLOW <id>* for one, or *DENY ALL* to reject all.
+```
+
+Reply **ALLOW**, **ALLOW ALL**, **DENY**, or **DENY ALL** — no chat UI needed. The action(s) execute in order with thinking blocks and configured delays. You can also reply **ALLOW pa_1** to approve a specific action when multiple are pending. Send **"pending"** or **"list"** to see all pending actions.
+
 ### Risk Profiles
 
 | Risk Level | Examples | Approval Required |
 |-----------|----------|------------------|
 | **Low** | Read volume, list files | None (auto-execute) |
-| **Medium** | Open apps, play music, set volume | User approve in chat UI |
-| **High** | Shell commands, delete, install | User approve in chat UI |
+| **Medium** | Open apps, play music, set volume | Reply ALLOW/DENY via WhatsApp |
+| **High** | Shell commands, send files | Reply ALLOW/DENY via WhatsApp |
 
 ### Per-Tool Permissions
 
 | Category | Default | Actions |
 |----------|---------|---------|
-| Shell | **Disabled** | `execute_shell`, `run_command` |
+| Shell | Enabled | `execute_shell`, `run_command` |
 | File Access | Enabled | `list_files`, `list_images`, `get_desktop_paths` |
-| Media Control | Enabled | `get_volume`, `set_volume`, `play`, `pause` |
+| Media Control | Enabled | `get_volume`, `set_volume`, `play`, `pause`, `next_track`, `prev_track` |
 | App Launching | Enabled | `open_app` |
-| WhatsApp | Enabled | `send_message`, `search_contacts` |
+| WhatsApp | Enabled | `send_message`, `send_file`, `search_contacts` |
 
 ### Contact Modes
 
@@ -286,6 +345,42 @@ Every allowed contact has a mode:
 - **Chat** — Text only, no desktop actions
 - **Summarize** — 2-3 sentence summary (default)
 - **Blocked** — Ignored at policy level
+
+## Chat Styles
+
+Whatszara lets you control the AI's tone and personality through chat styles. Each style is a short instruction injected into the system prompt. Choose from 9 predefined styles or write your own custom instructions.
+
+| Style | Tone |
+|-------|------|
+| **Human** | Natural, conversational, human-like (default) |
+| **Fun** | Playful, energetic, casual with humor |
+| **Warm** | Friendly, caring, supportive like a close friend |
+| **Teacher** | Instructive, educational, clear explanations |
+| **Principal** | Firm, authoritative, no-nonsense |
+| **Angry** | Frustrated, annoyed, short clipped sentences |
+| **Calm** | Measured, soothing, patient and gentle |
+| **AI** | Neutral, efficient, factual, minimal personality |
+| **Robot** | Overly formal, literal, stilted like a robot |
+| **Custom** | Any style you describe in free text |
+
+Set the style in **Settings > Chat Style** — it persists via credential store and applies to both Chat and Assistant modes.
+
+## Multi-Action AI Responses
+
+The AI can execute **multiple actions in a single response** by returning an `actions` array instead of a single `tool` field. Each action can include:
+
+- **`thinking`** — Internal reasoning text shown before executing the step
+- **`delay_ms`** — Milliseconds to wait before executing (e.g., 2000 for 2 seconds)
+
+This enables complex workflows like "list my desktop files, wait 3 seconds, then check disk space" — all from one AI response. Actions are processed sequentially: thinking is displayed, delay is applied, the action executes, then the next step begins.
+
+## Batch Approval
+
+When multiple actions require approval, the UI and WhatsApp approval flow support batch operations:
+
+- **Chat UI** — "Approve All" / "Reject All" buttons appear in the Pending Actions panel when 2+ actions are pending
+- **WhatsApp** — Reply **ALLOW ALL** or **DENY ALL** to handle all pending actions at once
+- **Individual** — Still supported: reply **ALLOW pa_1** to approve a specific action
 
 ## Persistent Storage
 

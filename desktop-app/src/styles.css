@@ -131,12 +131,13 @@ button { color: inherit; }
   width: 42px;
   height: 42px;
   border-radius: var(--radius);
-  display: grid;
-  place-items: center;
-  font-weight: 800;
-  color: #001f18;
-  background: linear-gradient(135deg, var(--accent), var(--accent-3));
+  overflow: hidden;
   box-shadow: 0 12px 28px rgba(32, 211, 162, 0.22);
+}
+.brand-icon {
+  width: 100%;
+  height: 100%;
+  display: block;
 }
 
 .sidebar-header h1 {
@@ -737,6 +738,13 @@ textarea:focus {
   background: linear-gradient(135deg, rgba(32, 211, 162, 0.15), rgba(89, 169, 255, 0.10));
   border-color: var(--border-strong);
 }
+.avatar-img {
+  width: 100%;
+  height: 100%;
+  border-radius: var(--radius);
+  object-fit: cover;
+}
+
 .chat-contact-item .avatar {
   width: 38px;
   height: 38px;
@@ -918,6 +926,20 @@ textarea:focus {
 }
 .chat-actions-section h4 {
   margin-bottom: 8px;
+}
+.chat-actions-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.chat-actions-header h4 {
+  margin-bottom: 0;
+}
+.batch-action-buttons {
+  display: flex;
+  gap: 6px;
 }
 .chat-actions-list {
   display: grid;
@@ -1154,4 +1176,56 @@ details p {
   .action-buttons {
     justify-content: flex-end;
   }
+}
+
+.warning-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  border: 1px solid rgba(255, 180, 84, 0.4);
+  border-radius: var(--radius);
+  background: linear-gradient(135deg, rgba(255, 180, 84, 0.12), rgba(255, 91, 110, 0.08));
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+.warning-banner-content {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.warning-icon {
+  font-size: 1.2rem;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.warning-banner strong {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--yellow);
+}
+.warning-banner p {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  margin: 0;
+}
+.warning-dismiss {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 1.1rem;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+.warning-dismiss:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.06);
 }

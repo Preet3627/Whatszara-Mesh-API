@@ -37,7 +37,7 @@ pub struct ToolPermissions {
 impl Default for ToolPermissions {
     fn default() -> Self {
         Self {
-            shell_enabled: false,
+            shell_enabled: true,
             file_access_enabled: true,
             media_control_enabled: true,
             app_launching_enabled: true,
@@ -81,13 +81,13 @@ pub enum RiskLevel {
 
 impl RiskLevel {
     pub fn requires_captcha(&self) -> bool {
-        matches!(self, RiskLevel::Medium | RiskLevel::High)
+        false
     }
     pub fn requires_recaptcha(&self) -> bool {
-        matches!(self, RiskLevel::High)
+        false
     }
     pub fn requires_confirmation(&self) -> bool {
-        matches!(self, RiskLevel::High)
+        matches!(self, RiskLevel::Medium | RiskLevel::High)
     }
 }
 
@@ -119,10 +119,15 @@ pub struct PolicyDecision {
     pub risk_level: String,
 }
 
+pub const PREDEFINED_STYLES: &[&str] = &[
+    "Human", "Fun", "Warm", "Teacher", "Principal", "Angry", "Calm", "AI", "Robot",
+];
+
 pub struct PolicyEngine {
     pub tool_permissions: ToolPermissions,
     pub allowlist: HashSet<String>,
     pub contact_modes: HashMap<String, ContactMode>,
+    pub chat_style: String,
 }
 
 impl Default for PolicyEngine {
@@ -133,6 +138,7 @@ impl Default for PolicyEngine {
             tool_permissions: ToolPermissions::default(),
             allowlist,
             contact_modes: HashMap::new(),
+            chat_style: "Human".to_string(),
         }
     }
 }
@@ -140,6 +146,10 @@ impl Default for PolicyEngine {
 impl PolicyEngine {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn set_chat_style(&mut self, style: &str) {
+        self.chat_style = style.to_string();
     }
 
     pub fn set_contact_mode(&mut self, jid: &str, mode: ContactMode) {
@@ -252,6 +262,8 @@ impl PolicyEngine {
             "contact_modes": self.contact_modes.iter().map(|(k, v)| {
                 (k.clone(), format!("{:?}", v).to_lowercase())
             }).collect::<HashMap<_, _>>(),
+            "chat_style": self.chat_style,
+            "predefined_styles": PREDEFINED_STYLES.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
         })
     }
 }

@@ -210,7 +210,15 @@ function updateBridgeUI(status) {
   if (stepProvider) stepProvider.classList.toggle("active", status.status === "connected");
 
   const logoutDiv = document.getElementById("bridge-logout");
-  if (logoutDiv) logoutDiv.classList.toggle("hidden", status.status !== "connected");
+  if (logoutDiv) {
+    const showLogout = status.status === "connected" || (["stopped", "error"].includes(status.status) && status.has_session);
+    logoutDiv.classList.toggle("hidden", !showLogout);
+    const hint = document.getElementById("logout-hint");
+    if (hint) hint.classList.toggle("hidden", status.status === "connected");
+  }
+
+  const startDiv = document.getElementById("bridge-start");
+  if (startDiv) startDiv.classList.toggle("hidden", status.status !== "stopped");
 }
 
 // ── Auto-Read ──
@@ -405,6 +413,31 @@ let selectedChatJid = null;
 let chatPollInterval = null;
 let pendingActionsPollInterval = null;
 
+const profilePictures = {};
+
+async function loadProfilePicture(jid) {
+  if (jid in profilePictures) return profilePictures[jid];
+  try {
+    const dataUrl = await invoke("get_profile_picture", { jid });
+    profilePictures[jid] = dataUrl || null;
+    return profilePictures[jid];
+  } catch {
+    profilePictures[jid] = null;
+    return null;
+  }
+}
+
+function loadProfilePicturesForContacts(contacts) {
+  let changed = false;
+  for (const c of contacts) {
+    if (!(c.jid in profilePictures)) {
+      loadProfilePicture(c.jid).then((url) => {
+        if (url) renderChatContacts(chatContacts);
+      });
+    }
+  }
+}
+
 async function refreshChatContacts() {
   try {
     const [contactsRaw, policyRaw] = await Promise.all([
@@ -416,6 +449,7 @@ async function refreshChatContacts() {
     chatAllowlist = policy.allowlist || [];
     chatContacts = contacts;
     renderChatContacts(contacts);
+    loadProfilePicturesForContacts(contacts);
   } catch (e) {
     console.error("Failed to load chat contacts", e);
   }
@@ -435,15 +469,22 @@ function renderChatContacts(contacts) {
       return c.jid.toLowerCase().includes(search) || c.name.toLowerCase().includes(search);
     })
     .map(
-      (c) => `
+      (c) => {
+        const picUrl = profilePictures[c.jid];
+        const avatarHtml = picUrl
+          ? `<img src="${picUrl}" class="avatar-img" alt="" />`
+          : (c.name || "?")[0].toUpperCase();
+        const dotHtml = chatAllowlist.includes(c.jid) ? '<span class="allowlisted-dot"></span>' : "";
+        return `
     <button class="chat-contact-item ${selectedChatJid === c.jid ? "active" : ""}" data-jid="${escHtml(c.jid)}">
-      <div class="avatar">${(c.name || "?")[0].toUpperCase()}${chatAllowlist.includes(c.jid) ? '<span class="allowlisted-dot"></span>' : ""}</div>
+      <div class="avatar">${avatarHtml}${dotHtml}</div>
       <div class="contact-info">
         <div class="contact-name">${escHtml(c.name || "Unknown")}</div>
         <div class="contact-jid-sm">${escHtml(c.jid)}</div>
       </div>
       ${chatAllowlist.includes(c.jid) ? '<span class="allowlisted-badge">Allowlisted</span>' : ""}
-    </button>`
+    </button>`;
+      }
     )
     .join("");
 }
@@ -577,6 +618,7 @@ async function refreshPendingActions() {
 function renderPendingActions(actions) {
   const list = document.getElementById("chat-actions-list");
   const countBadge = document.getElementById("pending-actions-count");
+  const batchBtns = document.getElementById("batch-action-buttons");
   if (!list) return;
 
   const contactActions = actions.filter((a) => a.contact_jid === selectedChatJid);
@@ -590,6 +632,10 @@ function renderPendingActions(actions) {
     }
   }
 
+  if (batchBtns) {
+    batchBtns.classList.toggle("hidden", contactActions.length < 2);
+  }
+
   if (!contactActions.length) {
     list.innerHTML = '<p class="text-muted">No pending actions</p>';
     return;
@@ -601,7 +647,7 @@ function renderPendingActions(actions) {
     <div class="action-card" data-action-id="${escHtml(a.id)}">
       <div class="action-info">
         <div class="action-name">${escHtml(a.action)}</div>
-        <div class="action-detail">${escHtml(JSON.stringify(a.params))} \u00b7 Risk: ${escHtml(a.risk_level)}</div>
+        <div class="action-detail">${escHtml(JSON.stringify(a.params))} \u00b7 Risk: ${escHtml(a.risk_level)}${a.thinking ? ' \u00b7 <em>' + escHtml(a.thinking) + '</em>' : ''}</div>
       </div>
       <div class="action-buttons">
         <button class="btn btn-small btn-success approve-btn">Approve</button>
@@ -626,6 +672,19 @@ document.getElementById("chat-actions-list")?.addEventListener("click", async (e
   }
 });
 
+document.getElementById("approve-all-btn")?.addEventListener("click", async () => {
+  if (!selectedChatJid) return;
+  await invoke("approve_all_actions", { contactJid: selectedChatJid });
+  await loadMessages(selectedChatJid);
+  await refreshPendingActions();
+});
+
+document.getElementById("reject-all-btn")?.addEventListener("click", async () => {
+  if (!selectedChatJid) return;
+  await invoke("reject_all_actions", { contactJid: selectedChatJid });
+  await refreshPendingActions();
+});
+
 // ── Action Log ──
 async function refreshActionLog() {
   try {
@@ -643,6 +702,7 @@ document.getElementById("refresh-log")?.addEventListener("click", refreshActionL
 
 // ── Settings ──
 function loadSettingsUI() {
+  loadChatStyleFromBackend();
   const saved = localStorage.getItem("whatszara-settings");
   if (saved) {
     const s = JSON.parse(saved);
@@ -721,6 +781,59 @@ document.getElementById("clear-config-from-keychain")?.addEventListener("click",
   alert("Config cleared from Keychain");
 });
 
+// ── Chat Style ──
+async function loadChatStyleFromBackend() {
+  try {
+    const raw = await invoke("get_policy");
+    const policy = JSON.parse(raw);
+    const currentStyle = policy.chat_style || "Human";
+    const predefined = policy.predefined_styles || [];
+    const select = document.getElementById("chat-style-select");
+    const customLabel = document.getElementById("chat-style-custom-label");
+    const customInput = document.getElementById("chat-style-custom");
+    if (!select) return;
+    const isCustom = !predefined.includes(currentStyle);
+    select.value = isCustom ? "__custom__" : currentStyle;
+    if (customLabel) customLabel.classList.toggle("hidden", !isCustom);
+    if (customInput) customInput.value = isCustom ? currentStyle : "";
+  } catch (e) {
+    console.error("Failed to load chat style", e);
+  }
+}
+
+document.getElementById("chat-style-select")?.addEventListener("change", (e) => {
+  const customLabel = document.getElementById("chat-style-custom-label");
+  if (customLabel) customLabel.classList.toggle("hidden", e.target.value !== "__custom__");
+});
+
+document.getElementById("apply-chat-style")?.addEventListener("click", async () => {
+  const select = document.getElementById("chat-style-select");
+  const customInput = document.getElementById("chat-style-custom");
+  let style = select?.value;
+  if (style === "__custom__") {
+    style = customInput?.value?.trim() || "Human";
+  }
+  if (!style) return;
+  try {
+    await invoke("set_chat_style", { style });
+  } catch (e) {
+    console.error("Failed to set chat style", e);
+  }
+});
+
+// ── Warning Banner Dismiss ──
+(function initWarningBanner() {
+  const dismissed = localStorage.getItem("whatszara-wa-warning-dismissed");
+  const banner = document.getElementById("wa-warning-banner");
+  if (dismissed && banner) banner.classList.add("hidden");
+})();
+
+document.getElementById("dismiss-wa-warning")?.addEventListener("click", () => {
+  const banner = document.getElementById("wa-warning-banner");
+  if (banner) banner.classList.add("hidden");
+  localStorage.setItem("whatszara-wa-warning-dismissed", "true");
+});
+
 // ── Logout ──
 document.getElementById("logout-bridge")?.addEventListener("click", async () => {
   if (!confirm("Logout from WhatsApp? This will disconnect your session and require re-authentication via QR code.")) return;
@@ -729,9 +842,25 @@ document.getElementById("logout-bridge")?.addEventListener("click", async () => 
     lastQrCode = "";
     const qrContainer = document.getElementById("qr-container");
     if (qrContainer) qrContainer.classList.add("hidden");
+    await invoke("start_bridge");
     pollBridge();
   } catch (e) {
     console.error("Logout failed", e);
+    pollBridge();
+  }
+});
+
+// ── Start Bridge ──
+document.getElementById("start-bridge")?.addEventListener("click", async () => {
+  try {
+    await invoke("start_bridge");
+    lastQrCode = "";
+    const qrContainer = document.getElementById("qr-container");
+    if (qrContainer) qrContainer.classList.add("hidden");
+    pollBridge();
+  } catch (e) {
+    console.error("Start bridge failed", e);
+    updateBridgeUI({ status: "error", error: String(e) });
   }
 });
 

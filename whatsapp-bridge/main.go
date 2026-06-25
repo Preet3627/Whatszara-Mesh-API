@@ -1,11 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"math"
 	"math/rand"
 	"net/http"
@@ -19,8 +22,6 @@ import (
 
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/mdp/qrterminal"
-
-	"bytes"
 
 	"go.mau.fi/whatsmeow"
 	waProto "go.mau.fi/whatsmeow/binary/proto"
@@ -814,6 +815,73 @@ func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port 
 			Filename: filename,
 			Path:     path,
 		})
+	})
+
+	// Handler for fetching profile pictures
+	http.HandleFunc("/api/picture", func(w http.ResponseWriter, r *http.Request) {
+		if !checkAPIKey(r) {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		jidStr := r.URL.Query().Get("jid")
+		if jidStr == "" {
+			http.Error(w, "jid parameter is required", http.StatusBadRequest)
+			return
+		}
+
+		jid, err := types.ParseJID(jidStr)
+		if err != nil {
+			http.Error(w, "Invalid JID", http.StatusBadRequest)
+			return
+		}
+
+		cacheDir := "store/pictures"
+		cachePath := filepath.Join(cacheDir, jidStr+".jpg")
+		if data, err := os.ReadFile(cachePath); err == nil {
+			w.Header().Set("Content-Type", "image/jpeg")
+			w.Header().Set("Cache-Control", "public, max-age=86400")
+			w.Write(data)
+			return
+		}
+
+		picInfo, err := client.GetProfilePictureInfo(context.Background(), jid, nil)
+		if err != nil {
+			if errors.Is(err, whatsmeow.ErrProfilePictureNotSet) || errors.Is(err, whatsmeow.ErrProfilePictureUnauthorized) {
+				http.Error(w, err.Error(), http.StatusNotFound)
+			} else {
+				http.Error(w, fmt.Sprintf("Failed to get profile picture: %v", err), http.StatusInternalServerError)
+			}
+			return
+		}
+		if picInfo == nil || picInfo.URL == "" {
+			http.Error(w, "No profile picture", http.StatusNotFound)
+			return
+		}
+
+		resp, err := http.Get(picInfo.URL)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to download picture: %v", err), http.StatusInternalServerError)
+			return
+		}
+		defer resp.Body.Close()
+
+		data, err := io.ReadAll(resp.Body)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to read picture: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		os.MkdirAll(cacheDir, 0755)
+		os.WriteFile(cachePath, data, 0644)
+
+		w.Header().Set("Content-Type", "image/jpeg")
+		w.Header().Set("Cache-Control", "public, max-age=86400")
+		w.Write(data)
 	})
 
 	// Start the server

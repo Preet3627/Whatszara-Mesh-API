@@ -13,7 +13,7 @@
     <div id="app">
       <aside class="sidebar">
         <div class="sidebar-header">
-          <div class="brand-mark">W</div>
+          <div class="brand-mark"><img src="/icon.png" alt="Whatszara" class="brand-icon" /></div>
           <div>
             <h1>Whatszara</h1>
             <span class="status-badge" id="status-badge">disconnected</span>
@@ -62,6 +62,16 @@
             </div>
             <button class="btn btn-ghost" data-view="guide" type="button">Setup Guide</button>
           </header>
+          <div id="wa-warning-banner" class="warning-banner">
+            <div class="warning-banner-content">
+              <span class="warning-icon">⚠️</span>
+              <div>
+                <strong>WhatsApp Account Warning</strong>
+                <p>Do NOT use your primary WhatsApp account. WhatsApp bans accounts that use unofficial clients. Use a secondary or temporary phone number.</p>
+              </div>
+            </div>
+            <button class="warning-dismiss" id="dismiss-wa-warning" title="Dismiss" type="button">&times;</button>
+          </div>
           <div class="stats-grid">
             <div class="stat-card accent-green">
               <span class="stat-label">WhatsApp</span>
@@ -105,6 +115,10 @@
                   <pre id="bridge-error-detail" class="code-block hidden"></pre>
                   <div id="bridge-logout" class="hidden action-row">
                     <button class="btn btn-danger btn-small" id="logout-bridge" type="button">Logout & Disconnect</button>
+                    <span class="text-muted" id="logout-hint" style="font-size:0.8rem;">Clear saved session to re-authenticate with a new QR code.</span>
+                  </div>
+                  <div id="bridge-start" class="hidden action-row">
+                    <button class="btn btn-primary btn-small" id="start-bridge" type="button">Start Bridge</button>
                   </div>
                 </div>
               </div>
@@ -295,7 +309,13 @@
                   <button class="btn btn-primary btn-small" id="chat-reply-send" type="button">Send</button>
                 </div>
                 <div id="chat-actions" class="chat-actions-section">
-                  <h4>Pending Actions <span id="pending-actions-count" class="badge-count" style="display:none;">0</span></h4>
+                  <div class="chat-actions-header">
+                    <h4>Pending Actions <span id="pending-actions-count" class="badge-count" style="display:none;">0</span></h4>
+                    <div id="batch-action-buttons" class="batch-action-buttons hidden">
+                      <button class="btn btn-small btn-success" id="approve-all-btn" type="button">Approve All</button>
+                      <button class="btn btn-small btn-danger" id="reject-all-btn" type="button">Reject All</button>
+                    </div>
+                  </div>
                   <div id="chat-actions-list" class="chat-actions-list">
                     <p class="text-muted">No pending actions</p>
                   </div>
@@ -365,6 +385,29 @@
                 <button class="btn btn-small" id="load-config-from-keychain" type="button">Load from Keychain</button>
                 <button class="btn btn-danger btn-small" id="clear-config-from-keychain" type="button">Clear Config</button>
               </div>
+            </div>
+            <div class="section">
+              <h3>Chat Style</h3>
+              <p class="text-muted">Controls how the AI sounds when replying to your messages.</p>
+              <label>Style
+                <select id="chat-style-select">
+                  <option value="Human">Human</option>
+                  <option value="Fun">Fun</option>
+                  <option value="Warm">Warm</option>
+                  <option value="Teacher">Teacher</option>
+                  <option value="Principal">Principal</option>
+                  <option value="Angry">Angry</option>
+                  <option value="Calm">Calm</option>
+                  <option value="AI">AI</option>
+                  <option value="Robot">Robot</option>
+                  <option value="__custom__">Custom...</option>
+                </select>
+              </label>
+              <label id="chat-style-custom-label" class="hidden">
+                Custom Style Instructions
+                <textarea id="chat-style-custom" rows="2" placeholder="Describe how the AI should write..."></textarea>
+              </label>
+              <button class="btn btn-small" id="apply-chat-style" type="button">Apply Style</button>
             </div>
             <div class="section">
               <h3>Local Settings</h3>
