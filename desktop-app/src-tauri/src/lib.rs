@@ -38,11 +38,21 @@ async fn stop_auto_read(state: tauri::State<'_, OrchestratorState>) -> Result<St
 }
 
 #[tauri::command]
+async fn set_poll_interval(state: tauri::State<'_, OrchestratorState>, ms: u64) -> Result<String, String> {
+    let mut orch = state.0.lock().await;
+    orch.poll_interval_ms = ms;
+    orch.policy.poll_interval_ms = ms;
+    auto_save_config(&orch);
+    Ok(serde_json::json!({"success": true}).to_string())
+}
+
+#[tauri::command]
 async fn get_auto_read_status(state: tauri::State<'_, OrchestratorState>) -> Result<String, String> {
     let orch = state.0.lock().await;
     Ok(serde_json::json!({
         "enabled": orch.auto_read_enabled,
         "last_rowid": orch.last_rowid,
+        "poll_interval_ms": orch.poll_interval_ms,
     }).to_string())
 }
 
@@ -471,6 +481,10 @@ async fn load_config(state: tauri::State<'_, OrchestratorState>) -> Result<Strin
     if let Some(style) = config["chat_style"].as_str() {
         orch.policy.set_chat_style(style);
     }
+    if let Some(ms) = config["poll_interval_ms"].as_u64() {
+        orch.policy.poll_interval_ms = ms;
+        orch.poll_interval_ms = ms;
+    }
     Ok(serde_json::json!({"success": true}).to_string())
 }
 
@@ -637,8 +651,12 @@ pub fn run() {
             if let Some(style) = config["chat_style"].as_str() {
                 orch.policy.set_chat_style(style);
             }
+            if let Some(ms) = config["poll_interval_ms"].as_u64() {
+                orch.policy.poll_interval_ms = ms;
+            }
         }
     }
+    orch.poll_interval_ms = orch.policy.poll_interval_ms;
 
     let orch_arc = Arc::new(Mutex::new(orch));
 
@@ -656,6 +674,7 @@ pub fn run() {
             start_auto_read,
             stop_auto_read,
             get_auto_read_status,
+            set_poll_interval,
             process_message,
             handle_action,
             undo_last,
@@ -689,6 +708,16 @@ pub fn run() {
             reject_all_actions,
         ])
         .setup(|app| {
+            let store_path = if cfg!(debug_assertions) {
+                let p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .join("../../whatsapp-bridge/store/messages.db");
+                p
+            } else {
+                let data_dir = app.path().app_data_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+                data_dir.join("store").join("messages.db")
+            };
+            whatszara::whatsapp::set_db_path(store_path);
+
             let auto_read_orch = app.state::<OrchestratorState>().0.clone();
             std::thread::spawn(move || {
                 let rt = tokio::runtime::Runtime::new().expect("Failed to create auto-read runtime");
@@ -720,9 +749,9 @@ pub fn run() {
                     };
 
                     loop {
-                        let should_run = {
+                        let (should_run, poll_ms) = {
                             let orch = auto_read_orch.lock().await;
-                            orch.auto_read_enabled
+                            (orch.auto_read_enabled, orch.poll_interval_ms)
                         };
 
                         if should_run {
@@ -843,7 +872,9 @@ pub fn run() {
                             }
                         }
 
-                        tokio::time::sleep(Duration::from_secs(5)).await;
+                        if poll_ms > 0 {
+                            tokio::time::sleep(Duration::from_millis(poll_ms)).await;
+                        }
                     }
                 });
             });

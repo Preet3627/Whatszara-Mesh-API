@@ -174,6 +174,7 @@ pub struct WhatszaraOrchestrator {
     action_counter: u64,
     pub auto_read_enabled: bool,
     pub last_rowid: i64,
+    pub poll_interval_ms: u64,
     platform: String,
 }
 
@@ -197,6 +198,7 @@ impl WhatszaraOrchestrator {
             action_counter: 0,
             auto_read_enabled: false,
             last_rowid: 0,
+            poll_interval_ms: 0,
             platform,
         }
     }
@@ -241,6 +243,21 @@ impl WhatszaraOrchestrator {
         }
     }
 
+    fn build_history(&self, message: &str, contact_jid: &str, limit: usize) -> Vec<LLMMessage> {
+        let mut history = Vec::new();
+        if let Ok(messages) = whatsapp::list_messages(contact_jid, limit) {
+            for msg in &messages {
+                let role = if msg.is_from_me { "assistant" } else { "user" };
+                history.push(LLMMessage {
+                    role: role.into(),
+                    content: msg.content.clone(),
+                });
+            }
+        }
+        history.push(LLMMessage { role: "user".into(), content: message.into() });
+        history
+    }
+
     pub async fn process_message(&mut self, message: &str, contact_jid: &str) -> Result<serde_json::Value, String> {
         let mode = self.policy.get_contact_mode(contact_jid);
 
@@ -277,14 +294,13 @@ impl WhatszaraOrchestrator {
             ContactMode::Chat => {
                 let style_instr = self.chat_style_instruction();
                 let warning = self.whatsapp_ban_warning();
-                let history = vec![
-                    LLMMessage { role: "user".into(), content: message.into() },
-                ];
+                let history = self.build_history(message, contact_jid, 10);
                 let system = format!("You are Whatszara, a WhatsApp-connected AI assistant. \
                     You can only chat and answer questions. You cannot execute any desktop actions. \
                     Respond helpfully and concisely.\n\n\
+                    Current contact JID: {}\n\n\
                     Chat Style: {}\n{}",
-                    style_instr, warning
+                    contact_jid, style_instr, warning
                 );
 
                 return match self.providers.chat(&history, Some(&system)).await {
@@ -307,6 +323,8 @@ impl WhatszaraOrchestrator {
                 let style_instr = self.chat_style_instruction();
                 let warning = self.whatsapp_ban_warning();
                 let system = format!("You are Whatszara, a desktop assistant running on {}. \
+                    You are currently chatting with JID: {}. \
+                    This is the person who sent you the latest message. \
                     Available tools:\n\
                     - execute_shell: params {{command}}\n\
                     - open_app: params {{name}}\n\
@@ -319,8 +337,12 @@ impl WhatszaraOrchestrator {
                     - send_file: params {{recipient, path, message}}\n\n\
                     On {} use `open` to launch apps, `osascript` for AppleScript. \
                     Shell commands run via `sh -c`. \
-                    Never use code blocks or markdown. \
-                    To send a message or file, FIRST search for the contact to get their JID.\n\n\
+                    Never use code blocks or markdown. \n\n\
+                    IMPORTANT for send_message:\n\
+                    - If user says \"send\" or \"send a message\" without specifying a recipient, \
+                    send to the current contact: {}. \
+                    - If user specifies a different name like \"send to John\", FIRST use search_contacts \
+                    to find their JID, then send.\n\n\
                     {} \
                     {} \n\n\
                     YOUR OUTPUT MUST BE VALID JSON. This is the most important rule. \
@@ -343,12 +365,10 @@ impl WhatszaraOrchestrator {
                     3. NEVER respond with text-only when an action is needed. Always include the JSON.\n\
                     4. Low-risk actions run immediately. Others wait for approval — but you MUST propose them with JSON.\n\
                     5. If multiple steps needed, use the \"actions\" array with thinking/delay_ms.",
-                    platform, platform, style_instr, warning
+                    platform, contact_jid, platform, contact_jid, style_instr, warning
                 );
 
-                let history = vec![
-                    LLMMessage { role: "user".into(), content: message.into() },
-                ];
+                let history = self.build_history(message, contact_jid, 10);
 
                 return match self.providers.chat(&history, Some(&system)).await {
                     Ok(resp) => {
@@ -916,6 +936,7 @@ impl WhatszaraOrchestrator {
             "policy": self.policy.to_json(),
             "auto_read_enabled": self.auto_read_enabled,
             "last_rowid": self.last_rowid,
+            "poll_interval_ms": self.poll_interval_ms,
         })
     }
 }

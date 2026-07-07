@@ -863,6 +863,34 @@ textarea:focus {
   color: var(--text-muted);
   font-size: 0.8rem;
 }
+.chat-header-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.allowlist-toggle-compact {
+  min-height: 32px;
+  padding: 4px 10px;
+  font-size: 0.78rem;
+  gap: 6px;
+  white-space: nowrap;
+}
+.allowlist-toggle-compact input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+}
+.allowlist-toggle-compact .toggle-label {
+  font-weight: 650;
+  font-size: 0.78rem;
+}
+.chat-mode-select {
+  width: auto;
+  min-height: 32px;
+  margin: 0;
+  padding: 4px 8px;
+  font-size: 0.78rem;
+}
 .chat-messages {
   flex: 1;
   min-height: 0;
@@ -1168,6 +1196,9 @@ details p {
   }
   .message-bubble {
     max-width: 88%;
+  }
+  .chat-header-controls {
+    flex-wrap: wrap;
   }
   .action-card,
   .chat-reply-area {

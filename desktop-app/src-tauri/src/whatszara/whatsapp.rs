@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use rusqlite::Connection;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Contact {
@@ -36,14 +37,22 @@ pub struct ContactInfo {
     pub last_active: Option<String>,
 }
 
+static DB_PATH: OnceLock<PathBuf> = OnceLock::new();
+
+pub fn set_db_path(path: PathBuf) {
+    let _ = DB_PATH.set(path);
+}
+
 fn db_path() -> PathBuf {
-    let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    p.pop();
-    p.pop();
-    p.push("whatsapp-bridge");
-    p.push("store");
-    p.push("messages.db");
-    p
+    DB_PATH.get().cloned().unwrap_or_else(|| {
+        let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        p.pop();
+        p.pop();
+        p.push("whatsapp-bridge");
+        p.push("store");
+        p.push("messages.db");
+        p
+    })
 }
 
 fn connect() -> Result<Connection, String> {

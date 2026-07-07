@@ -237,6 +237,7 @@ async function refreshAutoReadStatus() {
     const pill = document.getElementById("auto-read-pill");
     const toggle = document.getElementById("auto-read-toggle");
     const statusText = document.getElementById("auto-read-status");
+    const intervalInput = document.getElementById("poll-interval");
     if (pill) {
       pill.textContent = status.enabled ? "Running" : "Off";
       pill.className = "pill" + (status.enabled ? " pill-active" : "");
@@ -247,12 +248,20 @@ async function refreshAutoReadStatus() {
     if (statusText) {
       statusText.textContent = `Last rowid: ${status.last_rowid || 0}`;
     }
+    if (intervalInput && intervalInput.value !== String(status.poll_interval_ms)) {
+      intervalInput.value = status.poll_interval_ms;
+    }
   } catch {}
 }
 
 document.getElementById("auto-read-toggle")?.addEventListener("change", async (e) => {
   await toggleAutoRead(e.target.checked);
   refreshAutoReadStatus();
+});
+
+document.getElementById("poll-interval")?.addEventListener("change", async (e) => {
+  const ms = parseInt(e.target.value, 10) || 0;
+  await invoke("set_poll_interval", { ms });
 });
 
 // ── Dashboard ──
@@ -409,6 +418,7 @@ document.getElementById("active-provider-select")?.addEventListener("change", as
 // ── Chat View ──
 let chatContacts = [];
 let chatAllowlist = [];
+let chatContactModes = {};
 let selectedChatJid = null;
 let chatPollInterval = null;
 let pendingActionsPollInterval = null;
@@ -447,6 +457,7 @@ async function refreshChatContacts() {
     const contacts = JSON.parse(contactsRaw);
     const policy = JSON.parse(policyRaw);
     chatAllowlist = policy.allowlist || [];
+    chatContactModes = policy.contact_modes || {};
     chatContacts = contacts;
     renderChatContacts(contacts);
     loadProfilePicturesForContacts(contacts);
@@ -506,6 +517,10 @@ document.getElementById("chat-contact-list")?.addEventListener("click", async (e
   document.getElementById("chat-conversation").classList.remove("hidden");
   const replyArea = document.getElementById("chat-reply-area");
   if (replyArea) replyArea.classList.toggle("hidden", !isAllowlisted);
+  const allowlistToggle = document.getElementById("chat-allowlist-toggle");
+  if (allowlistToggle) allowlistToggle.checked = isAllowlisted;
+  const modeSelect = document.getElementById("chat-mode-select");
+  if (modeSelect) modeSelect.value = chatContactModes[selectedChatJid] || "summarize";
   lastMessageCount = 0;
   await loadMessages(selectedChatJid);
   await refreshPendingActions();
@@ -515,6 +530,28 @@ document.getElementById("chat-refresh")?.addEventListener("click", async () => {
   await refreshChatContacts();
   if (selectedChatJid) await loadMessages(selectedChatJid);
   await refreshPendingActions();
+});
+
+document.getElementById("chat-allowlist-toggle")?.addEventListener("change", async (e) => {
+  if (!selectedChatJid) return;
+  const action = e.target.checked ? "add" : "remove";
+  await invoke("update_allowlist", { action, jid: selectedChatJid });
+  const raw = await invoke("get_policy");
+  const policy = JSON.parse(raw);
+  chatAllowlist = policy.allowlist || [];
+  chatContactModes = policy.contact_modes || {};
+  renderChatContacts(chatContacts);
+  const replyArea = document.getElementById("chat-reply-area");
+  if (replyArea) replyArea.classList.toggle("hidden", !e.target.checked);
+});
+
+document.getElementById("chat-mode-select")?.addEventListener("change", async (e) => {
+  if (!selectedChatJid) return;
+  await invoke("update_contact_mode", { jid: selectedChatJid, mode: e.target.value });
+  const raw = await invoke("get_policy");
+  const policy = JSON.parse(raw);
+  chatContactModes = policy.contact_modes || {};
+  renderChatContacts(chatContacts);
 });
 
 async function sendAIReply() {

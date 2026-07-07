@@ -128,6 +128,7 @@ pub struct PolicyEngine {
     pub allowlist: HashSet<String>,
     pub contact_modes: HashMap<String, ContactMode>,
     pub chat_style: String,
+    pub poll_interval_ms: u64,
 }
 
 impl Default for PolicyEngine {
@@ -139,6 +140,7 @@ impl Default for PolicyEngine {
             allowlist,
             contact_modes: HashMap::new(),
             chat_style: "Human".to_string(),
+            poll_interval_ms: 0,
         }
     }
 }
@@ -264,6 +266,7 @@ impl PolicyEngine {
             }).collect::<HashMap<_, _>>(),
             "chat_style": self.chat_style,
             "predefined_styles": PREDEFINED_STYLES.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
+            "poll_interval_ms": self.poll_interval_ms,
         })
     }
 }

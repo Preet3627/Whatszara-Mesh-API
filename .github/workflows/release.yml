@@ -176,6 +176,7 @@ jobs:
             echo "Error: Release tag is not defined"
             exit 1
           fi
+          gh release create "$TAG" --repo "${{ github.repository }}" --title "$TAG" --notes "" 2>/dev/null || true
           if [ -d "artifacts" ] && [ "$(find artifacts -type f 2>/dev/null)" != "" ]; then
             find artifacts -type f -print0 | xargs -0 -r \
               gh release upload "$TAG" \

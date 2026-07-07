@@ -149,12 +149,17 @@
               <h3>Auto-Read</h3>
               <span class="pill" id="auto-read-pill">Off</span>
             </div>
-            <p class="text-muted">Automatically reads and responds to incoming messages from allowlisted contacts every 5 seconds.</p>
+            <p class="text-muted">Automatically reads and responds to incoming messages from allowlisted contacts. Set 0ms for instant response.</p>
             <div class="toggle-group">
               <label class="toggle">
                 <input type="checkbox" id="auto-read-toggle" />
                 <span class="toggle-label">Enable Auto-Read</span>
               </label>
+            </div>
+            <div class="input-group" style="margin-top:0.5rem;">
+              <label for="poll-interval">Poll interval (ms):</label>
+              <input type="number" id="poll-interval" min="0" max="60000" step="100" value="0" style="width:100px;" />
+              <span class="text-muted" style="font-size:0.8rem;">0 = instant</span>
             </div>
             <p class="text-muted" id="auto-read-status" style="margin-top:0.5rem;">Processed 0 messages</p>
           </div>
@@ -298,10 +303,22 @@
                     <h3 id="chat-contact-name">Contact Name</h3>
                     <span id="chat-contact-jid" class="text-muted"></span>
                   </div>
-                  <button class="btn btn-ghost btn-small" id="chat-refresh" title="Refresh contacts and messages" type="button">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-                    Refresh
-                  </button>
+                  <div class="chat-header-controls">
+                    <label class="toggle allowlist-toggle-compact">
+                      <input type="checkbox" id="chat-allowlist-toggle" />
+                      <span class="toggle-label">Allowlisted</span>
+                    </label>
+                    <select id="chat-mode-select" class="chat-mode-select">
+                      <option value="assistant">Assistant</option>
+                      <option value="chat">Chat Only</option>
+                      <option value="summarize">Summarize</option>
+                      <option value="blocked">Blocked</option>
+                    </select>
+                    <button class="btn btn-ghost btn-small" id="chat-refresh" title="Refresh contacts and messages" type="button">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                      Refresh
+                    </button>
+                  </div>
                 </div>
                 <div id="chat-messages" class="chat-messages"></div>
                 <div id="chat-reply-area" class="chat-reply-area hidden">
