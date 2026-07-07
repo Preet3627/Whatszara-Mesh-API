@@ -57,7 +57,7 @@ jobs:
           name: whatszara-macos
           path: |
             desktop-app/src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
-            desktop-app/src-tauri/bin/
+            desktop-app/src-tauri/bin/whatsapp-bridge-darwin
 
   build-windows:
     name: Build Windows
@@ -104,9 +104,9 @@ jobs:
         with:
           name: whatszara-windows
           path: |
-            desktop-app/src-tauri/target/release/*.msi
-            desktop-app/src-tauri/target/release/*.exe
-            desktop-app/src-tauri/bin/
+            desktop-app/src-tauri/target/release/bundle/msi/*.msi
+            desktop-app/src-tauri/target/release/bundle/nsis/*.exe
+            desktop-app/src-tauri/bin/whatsapp-bridge-windows.exe
 
   build-linux:
     name: Build Linux
@@ -147,14 +147,15 @@ jobs:
         with:
           name: whatszara-linux
           path: |
-            desktop-app/src-tauri/target/release/bundle/**/*
-            desktop-app/src-tauri/bin/
+            desktop-app/src-tauri/target/release/bundle/deb/*.deb
+            desktop-app/src-tauri/target/release/bundle/appimage/*.AppImage
+            desktop-app/src-tauri/bin/whatsapp-bridge-linux
 
   attach-to-release:
     name: Attach artifacts to release
     needs: [build-macos, build-windows, build-linux]
     runs-on: ubuntu-latest
-    if: github.event_name == 'release'
+    if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
     permissions:
       contents: write
     steps:
@@ -167,7 +168,18 @@ jobs:
       - name: Upload to release
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          INPUT_TAG: ${{ github.event.inputs.tag }}
         run: |
-          gh release upload "${{ github.event.release.tag_name }}" \
-            $(find artifacts -type f) \
-            --repo "${{ github.repository }}" --clobber
+          TAG="${RELEASE_TAG:-$INPUT_TAG}"
+          if [ -z "$TAG" ]; then
+            echo "Error: Release tag is not defined"
+            exit 1
+          fi
+          if [ -d "artifacts" ] && [ "$(find artifacts -type f 2>/dev/null)" != "" ]; then
+            find artifacts -type f -print0 | xargs -0 -r \
+              gh release upload "$TAG" \
+              --repo "${{ github.repository }}" --clobber
+          else
+            echo "No artifacts found to upload"
+          fi
