@@ -179,10 +179,10 @@
 
           <div class="section mesh-hero">
             <div class="mesh-hero-brand">
-              <div class="mesh-logo">🔀</div>
+              <img src="/mesh-api-logo.svg" alt="Mesh API" class="mesh-logo-img" />
               <div>
                 <h3>Mesh API</h3>
-                <p class="text-muted" style="margin:0;">AI Router — 300+ models, one API</p>
+                <p class="text-muted" style="margin:0;">AI Router — 1000+ models, one API</p>
               </div>
             </div>
             <p style="margin-top:0.75rem;">
@@ -507,7 +507,7 @@
                 <div><kbd>⌘1-7</kbd><span>Switch views</span></div>
                 <div><kbd>⌘K</kbd><span>Focus search or reply</span></div>
                 <div><kbd>⌘J</kbd><span>Open chat</span></div>
-                <div><kbd>⌘G</kbd><span>Open guide</span></div>
+                <div><kbd>⌘G</kbd><span>Ollama model selector (hidden)</span></div>
                 <div><kbd>?</kbd><span>Open guide</span></div>
                 <div><kbd>Esc</kbd><span>Clear focused input</span></div>
               </div>
@@ -548,6 +548,35 @@ MESH_GROQ_KEY=gsk_...</pre>
           </div>
         </div>
       </main>
+
+      <!-- Cmd+G Ollama Modal (hidden by default) -->
+      <div id="ollama-modal" class="modal-overlay hidden">
+        <div class="modal-dialog">
+          <div class="modal-header">
+            <h3>🔗 Ollama Connection</h3>
+            <button class="modal-close" id="ollama-modal-close" type="button">&times;</button>
+          </div>
+          <div class="modal-body">
+            <p class="text-muted" style="margin-bottom:0.75rem;">
+              Connect to a local Ollama instance. Your endpoint is stored encrypted in the system keychain.
+            </p>
+            <div class="form-grid">
+              <label>Ollama Endpoint
+                <input type="text" id="ollama-endpoint-input" value="http://localhost:11434" placeholder="http://localhost:11434" />
+              </label>
+              <button class="btn btn-small" id="ollama-fetch-models" type="button">Fetch Models</button>
+            </div>
+            <div id="ollama-model-list" class="ollama-model-list">
+              <p class="text-muted">Click "Fetch Models" to list available models.</p>
+            </div>
+            <div id="ollama-status" class="ollama-status"></div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-small" id="ollama-switch-mesh" type="button">Switch to Mesh API</button>
+            <button class="btn btn-primary btn-small" id="ollama-select-model" type="button" disabled>Switch to Ollama</button>
+          </div>
+        </div>
+      </div>
     </div>
     <script type="module" src="/src/main.js"></script>
   </body>
