@@ -428,12 +428,12 @@ fn list_messages(jid: String, limit: Option<usize>) -> Result<String, String> {
 async fn set_ollama_endpoint(state: tauri::State<'_, OrchestratorState>, endpoint: String) -> Result<String, String> {
     let mut orch = state.0.lock().await;
     for p in &mut orch.providers.providers {
-        if p.name() == "ollama" {
+        if p.name() == "mesh-api" {
             p.set_endpoint(&endpoint);
             return Ok(serde_json::json!({"success": true}).to_string());
         }
     }
-    Ok(serde_json::json!({"success": false, "error": "Ollama provider not found"}).to_string())
+    Ok(serde_json::json!({"success": false, "error": "Mesh API provider not found"}).to_string())
 }
 
 #[tauri::command]
@@ -492,6 +492,13 @@ async fn load_config(state: tauri::State<'_, OrchestratorState>) -> Result<Strin
 async fn clear_config() -> Result<String, String> {
     delete_keychain("whatszara-config").ok();
     Ok(serde_json::json!({"success": true}).to_string())
+}
+
+#[tauri::command]
+async fn verify_captcha(state: tauri::State<'_, OrchestratorState>, captcha_id: String, answer: String) -> Result<String, String> {
+    let mut orch = state.0.lock().await;
+    let verified = orch.policy.verify_captcha(&captcha_id, &answer);
+    Ok(serde_json::json!({"success": verified}).to_string())
 }
 
 #[tauri::command]
@@ -706,6 +713,7 @@ pub fn run() {
             reject_action,
             approve_all_actions,
             reject_all_actions,
+            verify_captcha,
         ])
         .setup(|app| {
             let store_path = if cfg!(debug_assertions) {

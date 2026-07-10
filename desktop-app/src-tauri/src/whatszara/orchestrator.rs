@@ -216,31 +216,17 @@ impl WhatszaraOrchestrator {
     }
 
     pub fn register_default_providers(&mut self) {
-        let ollama_endpoint = std::env::var("OLLAMA_ENDPOINT").unwrap_or_else(|_| "http://localhost:11434".into());
-        self.providers.register(Box::new(llm::OllamaProvider {
-            endpoint: ollama_endpoint,
-            model: "".into(),
+        let api_key = std::env::var("MESH_API_KEY").unwrap_or_else(|_| {
+            std::env::var("MESHAI_API_KEY").unwrap_or_default()
+        });
+        self.providers.register(Box::new(llm::MeshApiProvider {
+            api_key,
+            model: "openai/gpt-4o".into(),
+            endpoint: std::env::var("MESH_API_ENDPOINT").unwrap_or_else(|_| "https://api.meshapi.ai/v1".into()),
+            openai_key: std::env::var("MESH_OPENAI_KEY").unwrap_or_default(),
+            anthropic_key: std::env::var("MESH_ANTHROPIC_KEY").unwrap_or_default(),
+            groq_key: std::env::var("MESH_GROQ_KEY").unwrap_or_default(),
         }));
-        if let Ok(key) = std::env::var("ANTHROPIC_API_KEY") {
-            self.providers.register(Box::new(llm::ClaudeProvider {
-                api_key: key, model: "claude-sonnet-4-20250514".into(),
-            }));
-        }
-        if let Ok(key) = std::env::var("GROQ_API_KEY") {
-            self.providers.register(Box::new(llm::GroqProvider {
-                api_key: key, model: "llama-3.3-70b-versatile".into(),
-            }));
-        }
-        if let Ok(key) = std::env::var("XAI_API_KEY") {
-            self.providers.register(Box::new(llm::GrokProvider {
-                api_key: key, model: "grok-3-beta".into(),
-            }));
-        }
-        if let Ok(key) = std::env::var("GEMINI_API_KEY") {
-            self.providers.register(Box::new(llm::GeminiProvider {
-                api_key: key, model: "gemini-2.5-flash-001".into(),
-            }));
-        }
     }
 
     fn build_history(&self, message: &str, contact_jid: &str, limit: usize) -> Vec<LLMMessage> {
@@ -322,22 +308,29 @@ impl WhatszaraOrchestrator {
                 let platform = &self.platform;
                 let style_instr = self.chat_style_instruction();
                 let warning = self.whatsapp_ban_warning();
-                let system = format!("You are Whatszara, a desktop assistant running on {}. \
+                let system = format!("                    You are Whatszara, a desktop assistant running on {}. \
                     You are currently chatting with JID: {}. \
                     This is the person who sent you the latest message. \
+                    You are powered by Mesh API (https://developers.meshapi.ai) - \
+                    an AI router that provides access to 300+ models.\n\n\
                     Available tools:\n\
+                    - search_contacts: params {{query}} - Search contacts by name or phone\n\
+                    - list_chats: params {{limit}} - List recent conversations\n\
+                    - send_message: params {{recipient, message}} - Send WhatsApp message\n\
                     - execute_shell: params {{command}}\n\
                     - open_app: params {{name}}\n\
                     - get_volume, set_volume: params {{level}}\n\
                     - play_music: params {{query}}, pause_music, next_track, prev_track\n\
                     - list_images: params {{path}}, get_desktop_paths\n\
-                    - list_chats: params {{limit}}\n\
-                    - search_contacts: params {{query}}\n\
-                    - send_message: params {{recipient, message}}\n\
                     - send_file: params {{recipient, path, message}}\n\n\
                     On {} use `open` to launch apps, `osascript` for AppleScript. \
                     Shell commands run via `sh -c`. \
                     Never use code blocks or markdown. \n\n\
+                    CONTACT MANAGEMENT (you are THE assistant - use these freely):\n\
+                    - When user says \"list my contacts\" or \"show contacts\", use search_contacts with empty query or list_chats\n\
+                    - When user says \"find <name>\", use search_contacts with that name\n\
+                    - When user says \"send message to <name> saying <text>\", FIRST search_contacts to find their JID, then use send_message\n\
+                    - You can also send messages to phone numbers directly\n\n\
                     IMPORTANT for send_message:\n\
                     - If user says \"send\" or \"send a message\" without specifying a recipient, \
                     send to the current contact: {}. \
@@ -358,6 +351,10 @@ impl WhatszaraOrchestrator {
                     ]}}\n\n\
                     CHAT ONLY:\n\
                     {{\"chat\": \"Hello! How can I help?\"}}\n\n\
+                    CONTACT MANAGEMENT EXAMPLES:\n\
+                    {{\"chat\": \"Here are your contacts\", \"tool\": \"search_contacts\", \"params\": {{\"query\": \"\"}}}}\n\
+                    {{\"chat\": \"Finding John...\", \"tool\": \"search_contacts\", \"params\": {{\"query\": \"John\"}}}}\n\
+                    {{\"chat\": \"Sending message to John...\", \"tool\": \"send_message\", \"params\": {{\"recipient\": \"1234567890@s.whatsapp.net\", \"message\": \"Hello from Whatszara!\"}}}}\n\n\
                     CRITICAL RULES:\n\
                     1. When the user asks you to do something, YOU MUST INCLUDE THE JSON TOOL CALL. \
                     Never just say \"okay\" or ask without the JSON. If you don't output JSON, nothing happens.\n\

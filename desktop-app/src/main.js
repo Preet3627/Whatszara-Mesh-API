@@ -373,11 +373,11 @@ document.querySelectorAll("[data-perm]").forEach((cb) => {
   });
 });
 
-// ── Providers ──
+// ── Providers (Mesh API) ──
 async function refreshModels() {
   const container = document.getElementById("models-container");
   if (!container) return;
-  container.innerHTML = '<p class="text-muted">Loading models...</p>';
+  container.innerHTML = '<p class="text-muted">Loading models from Mesh API...</p>';
   try {
     const raw = await invoke("list_models");
     const providers = JSON.parse(raw);
@@ -387,7 +387,7 @@ async function refreshModels() {
       <div class="model-provider-card">
         <div class="model-provider-header">
           <h4>${escHtml(name)}</h4>
-          <span class="model-count">${models.length} model${models.length !== 1 ? "s" : ""}</span>
+          <span class="model-count">${models.length} model${models.length !== 1 ? "s" : ""} via Mesh API</span>
         </div>
         <select class="model-select" data-provider="${escHtml(name)}">
           ${models.map((m) => `<option value="${escHtml(m)}" ${m === current ? "selected" : ""}>${escHtml(m)}</option>`).join("")}
@@ -396,7 +396,7 @@ async function refreshModels() {
       )
       .join("");
   } catch {
-    container.innerHTML = '<p class="text-muted">Failed to fetch models</p>';
+    container.innerHTML = '<p class="text-muted">Failed to fetch models from Mesh API. Check your API key.</p>';
   }
 }
 
@@ -413,6 +413,39 @@ document.getElementById("models-container")?.addEventListener("change", async (e
 document.getElementById("active-provider-select")?.addEventListener("change", async (e) => {
   await invoke("set_active_provider", { name: e.target.value });
   refreshModels();
+});
+
+// Mesh API Key management
+document.getElementById("apply-mesh-key")?.addEventListener("click", async () => {
+  const key = document.getElementById("mesh-api-key")?.value;
+  const endpoint = document.getElementById("mesh-api-endpoint")?.value;
+  const model = document.getElementById("mesh-api-model")?.value;
+  if (key) {
+    await invoke("set_api_key", { provider: "mesh-api", key });
+  }
+  if (endpoint) {
+    await invoke("set_ollama_endpoint", { endpoint });
+  }
+  if (model) {
+    await invoke("set_model", { provider: "mesh-api", model });
+  }
+  refreshModels();
+});
+
+// BYOK - Bring Your Own Keys for Mesh API
+document.getElementById("apply-byok-keys")?.addEventListener("click", async () => {
+  const openaiKey = document.getElementById("mesh-openai-key")?.value;
+  const anthropicKey = document.getElementById("mesh-anthropic-key")?.value;
+  const groqKey = document.getElementById("mesh-groq-key")?.value;
+  if (openaiKey) {
+    await invoke("set_api_key", { provider: "mesh-api", key: openaiKey });
+  }
+  if (anthropicKey) {
+    await invoke("set_api_key", { provider: "mesh-api", key: anthropicKey });
+  }
+  if (groqKey) {
+    await invoke("set_api_key", { provider: "mesh-api", key: groqKey });
+  }
 });
 
 // ── Chat View ──
@@ -745,52 +778,36 @@ function loadSettingsUI() {
     const s = JSON.parse(saved);
     if (document.getElementById("bridge-url"))
       document.getElementById("bridge-url").value = s.bridgeUrl || "http://localhost:8080";
-    if (document.getElementById("ollama-endpoint"))
-      document.getElementById("ollama-endpoint").value = s.ollamaEndpoint || "http://localhost:11434";
-    if (document.getElementById("active-provider-select"))
-      document.getElementById("active-provider-select").value = s.activeProvider || "ollama";
-    if (document.getElementById("api-key-claude"))
-      document.getElementById("api-key-claude").value = s.claudeKey || "";
-    if (document.getElementById("api-key-groq"))
-      document.getElementById("api-key-groq").value = s.groqKey || "";
-    if (document.getElementById("api-key-xai"))
-      document.getElementById("api-key-xai").value = s.xaiKey || "";
-    if (document.getElementById("api-key-gemini"))
-      document.getElementById("api-key-gemini").value = s.geminiKey || "";
+    if (document.getElementById("mesh-api-endpoint-settings"))
+      document.getElementById("mesh-api-endpoint-settings").value = s.meshEndpoint || "https://api.meshapi.ai/v1";
   }
 }
 
 document.getElementById("save-settings")?.addEventListener("click", () => {
   const settings = {
     bridgeUrl: document.getElementById("bridge-url")?.value,
-    ollamaEndpoint: document.getElementById("ollama-endpoint")?.value,
-    activeProvider: document.getElementById("active-provider-select")?.value,
-    claudeKey: document.getElementById("api-key-claude")?.value,
-    groqKey: document.getElementById("api-key-groq")?.value,
-    xaiKey: document.getElementById("api-key-xai")?.value,
-    geminiKey: document.getElementById("api-key-gemini")?.value,
+    meshEndpoint: document.getElementById("mesh-api-endpoint-settings")?.value,
   };
   localStorage.setItem("whatszara-settings", JSON.stringify(settings));
 });
 
-document.getElementById("apply-ollama-endpoint")?.addEventListener("click", async () => {
-  const endpoint = document.getElementById("ollama-endpoint")?.value;
+document.getElementById("apply-mesh-endpoint")?.addEventListener("click", async () => {
+  const endpoint = document.getElementById("mesh-api-endpoint-settings")?.value;
   if (endpoint) {
     await invoke("set_ollama_endpoint", { endpoint });
     refreshModels();
   }
 });
 
-document.getElementById("apply-api-keys")?.addEventListener("click", async () => {
+document.getElementById("apply-byok-settings")?.addEventListener("click", async () => {
   const keys = {
-    claude: document.getElementById("api-key-claude")?.value,
-    groq: document.getElementById("api-key-groq")?.value,
-    xai: document.getElementById("api-key-xai")?.value,
-    gemini: document.getElementById("api-key-gemini")?.value,
+    openai: document.getElementById("mesh-openai-key-settings")?.value,
+    anthropic: document.getElementById("mesh-anthropic-key-settings")?.value,
+    groq: document.getElementById("mesh-groq-key-settings")?.value,
   };
   for (const [provider, key] of Object.entries(keys)) {
     if (key) {
-      await invoke("set_api_key", { provider, key });
+      await invoke("set_api_key", { provider: "mesh-api", key });
     }
   }
   refreshModels();

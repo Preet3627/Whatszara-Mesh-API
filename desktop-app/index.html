@@ -176,21 +176,71 @@
               Refresh
             </button>
           </header>
-          <div class="section">
-            <div class="form-grid">
-              <label>Active Provider
-                <select id="active-provider-select">
-                  <option value="ollama">Ollama</option>
-                  <option value="claude">Claude</option>
-                  <option value="groq">Groq</option>
-                  <option value="grok">Grok</option>
-                  <option value="gemini">Gemini</option>
-                </select>
-              </label>
+
+          <div class="section mesh-hero">
+            <div class="mesh-hero-brand">
+              <div class="mesh-logo">🔀</div>
+              <div>
+                <h3>Mesh API</h3>
+                <p class="text-muted" style="margin:0;">AI Router — 300+ models, one API</p>
+              </div>
             </div>
+            <p style="margin-top:0.75rem;">
+              Powered by <strong>Mesh API</strong> —
+              a unified AI inference gateway. Access OpenAI, Anthropic, Groq, and more
+              through a single OpenAI-compatible endpoint.
+              <br><br>
+              <em>Special thanks to the Mesh API team and Dhruv Rathee's team
+              for making multi-model AI accessible to everyone.</em>
+            </p>
+            <div class="mesh-links">
+              <a href="https://developers.meshapi.ai" target="_blank" rel="noopener">Documentation →</a>
+              <a href="https://app.meshapi.ai" target="_blank" rel="noopener">Dashboard →</a>
+            </div>
+          </div>
+
+          <div class="section">
+            <div class="section-heading compact">
+              <h3>Configuration</h3>
+            </div>
+            <div class="form-grid">
+              <label>Mesh API Key (RSK)
+                <input type="password" id="mesh-api-key" placeholder="rsk_..." />
+              </label>
+              <label>API Endpoint
+                <input type="text" id="mesh-api-endpoint" value="https://api.meshapi.ai/v1" />
+              </label>
+              <label>Model
+                <input type="text" id="mesh-api-model" value="openai/gpt-4o" placeholder="openai/gpt-4o" />
+              </label>
+              <button class="btn btn-small" id="apply-mesh-key" type="button">Apply Mesh API Key</button>
+            </div>
+          </div>
+
+          <div class="section">
+            <div class="section-heading compact">
+              <h3>BYOK — Bring Your Own Keys</h3>
+              <span class="pill">Optional</span>
+            </div>
+            <p class="text-muted">Provide your own upstream provider keys for Mesh API to route through.</p>
+            <div class="form-grid">
+              <label>OpenAI Key
+                <input type="password" id="mesh-openai-key" placeholder="sk-proj-..." />
+              </label>
+              <label>Anthropic Key
+                <input type="password" id="mesh-anthropic-key" placeholder="sk-ant-..." />
+              </label>
+              <label>Groq Key
+                <input type="password" id="mesh-groq-key" placeholder="gsk_..." />
+              </label>
+              <button class="btn btn-small" id="apply-byok-keys" type="button">Apply BYOK Keys</button>
+            </div>
+          </div>
+
+          <div class="section">
             <div class="section-heading compact">
               <h3>Available Models</h3>
-              <span class="pill">Auto-detected</span>
+              <span class="pill">via Mesh API</span>
             </div>
             <div id="models-container"></div>
           </div>
@@ -382,17 +432,16 @@
               <label>Bridge URL <input type="text" id="bridge-url" value="http://localhost:8080" /></label>
             </div>
             <div class="section">
-              <h3>Orchestrator</h3>
-              <label>Ollama Endpoint <input type="text" id="ollama-endpoint" value="http://localhost:11434" /></label>
-              <button class="btn btn-small" id="apply-ollama-endpoint" type="button">Apply Endpoint</button>
+              <h3>Mesh API</h3>
+              <label>Mesh API Endpoint <input type="text" id="mesh-api-endpoint-settings" value="https://api.meshapi.ai/v1" /></label>
+              <button class="btn btn-small" id="apply-mesh-endpoint" type="button">Apply Endpoint</button>
             </div>
             <div class="section">
-              <h3>Provider API Keys</h3>
-              <label>Anthropic (Claude) <input type="password" id="api-key-claude" placeholder="sk-ant-..." /></label>
-              <label>Groq <input type="password" id="api-key-groq" placeholder="gsk_..." /></label>
-              <label>xAI (Grok) <input type="password" id="api-key-xai" placeholder="xai-..." /></label>
-              <label>Gemini <input type="password" id="api-key-gemini" placeholder="AIza..." /></label>
-              <button class="btn btn-small" id="apply-api-keys" type="button">Apply API Keys</button>
+              <h3>BYOK — Provider Keys (via Mesh API)</h3>
+              <label>OpenAI Key <input type="password" id="mesh-openai-key-settings" placeholder="sk-proj-..." /></label>
+              <label>Anthropic Key <input type="password" id="mesh-anthropic-key-settings" placeholder="sk-ant-..." /></label>
+              <label>Groq Key <input type="password" id="mesh-groq-key-settings" placeholder="gsk_..." /></label>
+              <button class="btn btn-small" id="apply-byok-settings" type="button">Apply BYOK Keys</button>
             </div>
             <div class="section">
               <h3>Persistent Config</h3>
@@ -485,12 +534,16 @@
               </div>
             </section>
             <section class="section guide-card">
-              <h3>Provider Environment</h3>
-              <pre class="code-block">OLLAMA_ENDPOINT=http://localhost:11434
-ANTHROPIC_API_KEY=sk-ant-...
-GROQ_API_KEY=gsk-...
-XAI_API_KEY=xai-...
-GEMINI_API_KEY=AIza...</pre>
+              <h3>Mesh API Configuration</h3>
+              <pre class="code-block">MESH_API_KEY=rsk_...
+MESH_API_ENDPOINT=https://api.meshapi.ai/v1
+# BYOK (optional):
+MESH_OPENAI_KEY=sk-proj-...
+MESH_ANTHROPIC_KEY=sk-ant-...
+MESH_GROQ_KEY=gsk_...</pre>
+              <p class="text-muted" style="margin-top:0.5rem;">
+                Get your API key at <a href="https://app.meshapi.ai" target="_blank" rel="noopener">app.meshapi.ai</a>
+              </p>
             </section>
           </div>
         </div>
