@@ -87,14 +87,22 @@ async fn undo_last(state: tauri::State<'_, OrchestratorState>, contact: String) 
 #[tauri::command]
 fn list_providers(state: tauri::State<OrchestratorState>) -> Result<String, String> {
     let orch = state.0.blocking_lock();
-    Ok(serde_json::json!(orch.providers.list_names()).to_string())
+    let visible: Vec<String> = orch.providers.list_names().into_iter()
+        .filter(|n| n == "mesh-api")
+        .collect();
+    Ok(serde_json::json!(visible).to_string())
 }
 
 #[tauri::command]
 async fn list_models(state: tauri::State<'_, OrchestratorState>) -> Result<String, String> {
     let orch = state.0.lock().await;
-    let models = orch.providers.list_all_models().await;
-    Ok(serde_json::json!(models).to_string())
+    let active = orch.providers.active_provider();
+    let name = active.name().to_string();
+    let models = active.list_models().await.unwrap_or_else(|_| vec![active.default_model().to_string()]);
+    let current = active.current_model().to_string();
+    let effective = if current.is_empty() { models.first().cloned().unwrap_or_default() } else { current };
+    let result = vec![(name, models, effective)];
+    Ok(serde_json::json!(result).to_string())
 }
 
 #[tauri::command]

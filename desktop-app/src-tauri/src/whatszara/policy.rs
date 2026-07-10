@@ -190,17 +190,14 @@ fn draw_line(img: &mut image::RgbImage, x1: u32, y1: u32, x2: u32, y2: u32, colo
 }
 
 fn draw_char(img: &mut image::RgbImage, _ch: char, x: u32, y: u32, color: image::Rgb<u8>) {
-    use rand::Rng;
-    let mut rng = rand::thread_rng();
-    let radius = 4;
-    for dy in 0..=radius*2 {
-        for dx in 0..=radius*2 {
-            let px = x + dx;
-            let py = y + dy;
-            let dist = ((dx as i32 - radius).pow(2) + (dy as i32 - radius).pow(2)) as f64;
+    let radius: i32 = 4;
+    for dy in 0..=radius * 2 {
+        for dx in 0..=radius * 2 {
+            let px = x + dx as u32;
+            let py = y + dy as u32;
+            let dist = ((dx - radius).pow(2) + (dy - radius).pow(2)) as f64;
             if dist <= (radius * radius) as f64 {
                 if px < img.width() && py < img.height() {
-                    let _ = rng.gen_range(0..20);
                     img.put_pixel(px, py, color);
                 }
             }
